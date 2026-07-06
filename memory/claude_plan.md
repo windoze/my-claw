@@ -1,24 +1,28 @@
-# Execution Plan
+## Current invocation plan
 
-I will follow `TODO.md` as the source of truth, identify the first task whose heading is not prefixed with `[DONE]`, complete exactly that task, validate it according to the task and repository requirements, update `TODO.md` with the completion record and `[DONE]` prefix, then commit the resulting changes.
+### Reasoning summary
 
-Steps:
-1. Read `TODO.md` first and select the first incomplete task.
-2. Check the latest commit only for unfinished work directly relevant to that selected task.
-3. Inspect the files and tests needed for the selected task.
-4. Implement the task without narrowing scope or using workarounds.
-5. Run formatting, linting, and relevant tests in the required order.
-6. If validation reveals unscheduled failures, fix them if in scope or add the minimum prerequisite task to `TODO.md` before stopping.
-7. Update `TODO.md` so the completed task title is prefixed with `[DONE]` and its completion record reflects the work and validation.
-8. Update this plan file at key milestones.
-9. Commit all task-related changes with a descriptive message and stop.
+The authoritative source for this invocation is `TODO.md`. I will identify the first task whose heading is not explicitly prefixed with `[DONE]`, complete only that task, validate it according to the repository's existing tooling and the task's stated requirements, update the task's completion record, commit the resulting changes, and stop. I will not perform broad issue triage before selecting the current task. If a blocker directly prevents the selected task, I will add the minimum prerequisite task to `TODO.md`, commit that bookkeeping, and stop.
 
-Progress:
-- Selected first incomplete task: `T14 [TODO] 接入 Claude Code Agent SDK 基础调用`.
-- Latest commit completed T13 and does not add an unfinished blocker for T14.
-- Baseline `npm run typecheck` and `npm run build` passed before code changes.
-- Installed `@anthropic-ai/claude-agent-sdk` and reviewed its `query()` API, `Options`, `PermissionMode`, `SDKMessage`, and `SDKResultMessage` types.
-- Implementation will add `ClaudeCodeAdapter`, Claude backend types, backend exports, and a local prompt script that exercises the adapter without DingTalk.
-- Implemented and exported `ClaudeCodeAdapter`, added the `claude:prompt` local script, tightened Claude permission-mode config validation, and marked T14 `[DONE]` in `TODO.md`.
-- Validation completed: TypeScript typecheck, build, fake message routing, real Claude prompt response, and real `cwd` verification through a `pwd` tool call in a temporary directory.
-- Final step: inspect the git diff, ensure only T14-related changes are present, then commit the completed task.
+### Step-by-step execution plan
+
+1. Read `TODO.md` to find the first incomplete task and its validation/completion requirements.
+2. Check the latest commit message only for unfinished work directly relevant to that selected task.
+3. Inspect the repository structure and files needed for the selected task.
+4. Implement the task completely, avoiding unrelated changes and preserving existing conventions.
+5. Run formatting, linting, and tests required by the task and repository, in that order where applicable.
+6. If validation exposes unscheduled failures, fix them if in scope or add the minimum prerequisite/follow-up task before marking the task done.
+7. Update this progress file at key milestones.
+8. Mark the completed task title in `TODO.md` with `[DONE]` and update its completion record.
+9. Commit all changes relevant to this invocation with a descriptive message and the required co-author trailer.
+10. Stop after completing exactly one task.
+
+### Progress
+
+- Selected first incomplete task: `T15 [TODO] 实现 Claude Code session 保存和恢复`.
+- Relevant existing support found: `SessionManager` already persists session IDs for default/project environments and exposes them on `AgentEnvironment`; fake routing already saves `done.sessionId`.
+- Main implementation gap: `ClaudeCodeAdapter` opens sessions with stored IDs but does not pass `resume` to the SDK or fall back to a new session when resume fails.
+- Implemented adapter support for SDK `options.resume`, session ID refresh from successful result messages, warning + user-visible text when resume fails, and retry as a new session while preserving `/stop` abort handling.
+- Added `npm run claude:prompt -- --resume <session-id>` support for local resume validation.
+- Validation completed: TypeScript typecheck, build, fake message route, mocked SDK resume/fallback/session refresh checks, real Claude Code `--resume` context recovery, and persisted fake-state restoration.
+- Marked `T15` as `[DONE]` in `TODO.md` with a completion record.

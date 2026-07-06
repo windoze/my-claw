@@ -23,6 +23,7 @@ interface ParsedCliOptions {
   cwd?: string;
   agent?: string;
   model?: string;
+  resumeSessionId?: string;
   permissionMode?: ClaudeCodePermissionMode;
   allowedTools: string[];
   maxTurns?: number;
@@ -101,6 +102,7 @@ function buildEnvironment(
     cwd,
     ...(agent !== undefined ? { agent } : {}),
     ...(model !== undefined ? { model } : {}),
+    ...(options.resumeSessionId !== undefined ? { sessionId: options.resumeSessionId } : {}),
   };
 }
 
@@ -172,6 +174,10 @@ function parseCliArgs(args: readonly string[]): ParsedCliOptions {
         break;
       case "--model":
         options.model = readCliValue(args, index, arg);
+        index += 2;
+        break;
+      case "--resume":
+        options.resumeSessionId = readCliValue(args, index, arg);
         index += 2;
         break;
       case "--permission-mode":
@@ -253,6 +259,7 @@ function writeUsage(): void {
       "  --cwd <dir>                 Working directory for Claude Code. Defaults to config cwd or process cwd.",
       "  --agent <name>              Optional Claude Code agent name.",
       "  --model <model>             Optional Claude model name.",
+      "  --resume <session-id>       Resume a previous Claude Code session id.",
       "  --permission-mode <mode>    default, acceptEdits, bypassPermissions, plan, dontAsk, or auto.",
       "  --tool <name>               Auto-allowed Claude Code tool. Repeatable.",
       "  --max-turns <n>             Maximum Claude Code turns. Defaults to 1 without config.",

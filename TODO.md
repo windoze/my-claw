@@ -228,7 +228,7 @@
 
 完成记录：2026-07-06 安装 `@anthropic-ai/claude-agent-sdk`，新增 `src/backend/claude/ClaudeCodeAdapter.ts`、`src/backend/claude/types.ts`、`src/backend/claude/index.ts` 和 `npm run claude:prompt` 本地脚本；`ClaudeCodeAdapter` 从 `claudeCode` 配置读取 `allowedTools`、`permissionMode`、`maxTurns`，调用 SDK `query()` 时设置 `cwd`、`agent`、`model`，将流式文本 delta 映射为 `AgentEvent.text`，将 SDK result success 映射为 `AgentEvent.done` 和 sessionId，将 SDK/运行错误映射为 `AgentEvent.error`，并提供基础 stop/close 资源清理；配置校验现在限制 Claude Code permission mode 为 SDK 支持值。已验证 `npm run typecheck`、`npm run build`、配置样例加载、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、`npm run claude:prompt -- --max-turns 1 --cwd . "请只回复：OK"`，以及在临时目录通过 `pwd` 工具确认 `cwd` 生效。
 
-## T15 [TODO] 实现 Claude Code session 保存和恢复
+## T15 [DONE] 实现 Claude Code session 保存和恢复
 
 阶段：第一阶段，Claude Code 后端。
 
@@ -241,6 +241,8 @@
 实现细节：如果使用 `ClaudeSDKClient` 保持长连接，需要维护 `cwd -> client` 映射；如果使用 `query()`，需要明确传递 `resume`；实现方式必须与 `/stop` 的中断需求兼容。
 
 验收：连续问两条相关问题，第二条能引用第一条上下文；重启服务后同目录 session 能恢复或在失败时明确提示并新建。
+
+完成记录：2026-07-06 完成 Claude Code session 保存和恢复链路；`ClaudeCodeAdapter` 现在会把环境中的持久化 session ID 传给 SDK `options.resume`，成功 result 会刷新 backend session 的 `sessionId` 并继续通过 `AgentEvent.done.sessionId` 交给 `SessionManager.saveSessionId()` 持久化；当存量 session 无法恢复时会记录 warn、发送“已创建新会话”的用户可见提示，并不绕过错误地重试为一个新 Claude 会话，且同一 abort/query 记录仍兼容后续 `/stop` 中断。`npm run claude:prompt` 新增 `--resume <session-id>` 便于本地验证恢复。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、mock SDK resume/fallback/sessionId 刷新检查、真实 Claude Code 两轮 `--resume` 上下文恢复，以及持久化 fake state 重启恢复 session 显示。
 
 ## T16 [TODO] 打通普通消息到 Claude Code 的本地路由
 

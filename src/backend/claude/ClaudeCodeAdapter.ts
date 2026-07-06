@@ -33,9 +33,12 @@ interface ActiveClaudeQuery {
   query?: Query;
 }
 
+type QueryAttemptOutcome = "completed" | "resume_failed";
+
 const CLAUDE_CODE_BACKEND = "claude-code";
 const NO_RESULT_MESSAGE = "Claude Code 未返回完成结果。";
 const STOPPED_MESSAGE = "当前 Agent 任务已中断。";
+const RESUME_FALLBACK_MESSAGE = "无法恢复上次 Claude Code 会话，已创建新会话。\n\n";
 
 /** Runs prompts through Claude Code and maps SDK messages to AgentEvent values. */
 export class ClaudeCodeAdapter implements BackendAdapter {
@@ -74,13 +77,50 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     const activeQuery: ActiveClaudeQuery = { abortController };
     this.activeQueries.set(session, activeQuery);
 
+    try {
+      const resumeSessionId = session.sessionId;
+
+      if (resumeSessionId !== undefined) {
+        const resumeOutcome = yield* this.sendQueryAttempt(
+          session,
+          input,
+          activeQuery,
+          resumeSessionId,
+        );
+
+        if (resumeOutcome !== "resume_failed" || abortController.signal.aborted) {
+          return;
+        }
+
+        this.logger.warn("Claude Code session resume failed; starting a new session.", {
+          cwd: session.cwd,
+          sessionId: resumeSessionId,
+        });
+        delete session.sessionId;
+        yield { type: "text", text: RESUME_FALLBACK_MESSAGE };
+      }
+
+      yield* this.sendQueryAttempt(session, input, activeQuery);
+    } finally {
+      this.activeQueries.delete(session);
+    }
+  }
+
+  /** Runs one SDK query attempt, optionally resuming a stored Claude Code session. */
+  private async *sendQueryAttempt(
+    session: BackendSession,
+    input: AgentInput,
+    activeQuery: ActiveClaudeQuery,
+    resumeSessionId?: string,
+  ): AsyncGenerator<AgentEvent, QueryAttemptOutcome, void> {
     let streamedText = false;
     let terminalEventEmitted = false;
+    let sdkQuery: Query | null = null;
 
     try {
-      const sdkQuery = this.queryFn({
+      sdkQuery = this.queryFn({
         prompt: input.text,
-        options: this.buildQueryOptions(session, abortController),
+        options: this.buildQueryOptions(session, activeQuery.abortController, resumeSessionId),
       });
       activeQuery.query = sdkQuery;
 
@@ -94,24 +134,45 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
         if (sdkMessage.type === "result") {
           terminalEventEmitted = true;
+
+          if (isResumeFailureResult(sdkMessage, streamedText, resumeSessionId)) {
+            return "resume_failed";
+          }
+
+          if (sdkMessage.subtype === "success") {
+            session.sessionId = sdkMessage.session_id;
+          }
+
           yield mapResultMessage(sdkMessage, streamedText);
         }
       }
 
       if (!terminalEventEmitted) {
-        yield buildMissingResultEvent(abortController.signal.aborted);
+        yield buildMissingResultEvent(activeQuery.abortController.signal.aborted);
       }
     } catch (error: unknown) {
-      if (abortController.signal.aborted) {
+      if (activeQuery.abortController.signal.aborted) {
         yield { type: "stopped", message: STOPPED_MESSAGE };
-        return;
+        return "completed";
+      }
+
+      if (
+        resumeSessionId !== undefined &&
+        !streamedText &&
+        isResumeFailureMessage(formatUnknownErrorMessage(error))
+      ) {
+        return "resume_failed";
       }
 
       this.logger.error("Claude Code SDK query failed.", { error });
       yield { type: "error", message: formatThrownError(error) };
     } finally {
-      this.activeQueries.delete(session);
+      if (sdkQuery !== null && activeQuery.query === sdkQuery) {
+        delete activeQuery.query;
+      }
     }
+
+    return "completed";
   }
 
   /** Requests cancellation for an active Claude Code query. */
@@ -142,7 +203,11 @@ export class ClaudeCodeAdapter implements BackendAdapter {
   }
 
   /** Converts app config and environment selection into Claude Agent SDK options. */
-  private buildQueryOptions(session: BackendSession, abortController: AbortController): Options {
+  private buildQueryOptions(
+    session: BackendSession,
+    abortController: AbortController,
+    resumeSessionId?: string,
+  ): Options {
     const environment = this.sessionEnvironments.get(session);
     const options: Options = {
       abortController,
@@ -169,6 +234,10 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
     if (environment?.model !== undefined) {
       options.model = environment.model;
+    }
+
+    if (resumeSessionId !== undefined) {
+      options.resume = resumeSessionId;
     }
 
     return options;
@@ -206,6 +275,19 @@ function mapResultMessage(message: SDKResultMessage, streamedText: boolean): Age
   }
 
   return { type: "error", message: formatSdkErrorResult(message) };
+}
+
+/** Detects SDK result errors that specifically mean a stored session could not resume. */
+function isResumeFailureResult(
+  message: SDKResultMessage,
+  streamedText: boolean,
+  resumeSessionId: string | undefined,
+): boolean {
+  if (resumeSessionId === undefined || streamedText || message.subtype === "success") {
+    return false;
+  }
+
+  return isResumeFailureMessage(formatSdkErrorResult(message));
 }
 
 /** Reports an interrupted or malformed SDK stream without pretending it succeeded. */
@@ -265,6 +347,52 @@ function formatThrownError(error: unknown): string {
   }
 
   return `Claude Code 调用失败：${redactLogString(String(error))}`;
+}
+
+/** Extracts thrown-error text for classification without exposing it directly to users. */
+function formatUnknownErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const causeText =
+      error.cause === undefined ? "" : ` ${formatUnknownErrorMessage(error.cause)}`;
+    return `${error.name} ${error.message}${causeText}`;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return String(error);
+}
+
+/** Returns true for common Claude SDK failures caused by an unavailable resume target. */
+function isResumeFailureMessage(message: string): boolean {
+  const normalizedMessage = message.toLowerCase();
+  const mentionsResume =
+    normalizedMessage.includes("resume") ||
+    normalizedMessage.includes("resuming") ||
+    normalizedMessage.includes("resumed");
+  const mentionsSession =
+    normalizedMessage.includes("session") ||
+    normalizedMessage.includes("conversation") ||
+    normalizedMessage.includes("transcript");
+  const describesUnavailableTarget =
+    normalizedMessage.includes("not found") ||
+    normalizedMessage.includes("not exist") ||
+    normalizedMessage.includes("does not exist") ||
+    normalizedMessage.includes("missing") ||
+    normalizedMessage.includes("invalid") ||
+    normalizedMessage.includes("expired") ||
+    normalizedMessage.includes("unable to load") ||
+    normalizedMessage.includes("unable to resume") ||
+    normalizedMessage.includes("could not load") ||
+    normalizedMessage.includes("could not resume") ||
+    normalizedMessage.includes("failed to load") ||
+    normalizedMessage.includes("failed to resume") ||
+    normalizedMessage.includes("no session") ||
+    normalizedMessage.includes("no conversation") ||
+    normalizedMessage.includes("no transcript");
+
+  return describesUnavailableTarget && (mentionsResume || mentionsSession);
 }
 
 /** Checks whether an unknown value is a plain object-like record. */
