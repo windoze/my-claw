@@ -15,14 +15,19 @@ I will maintain this file as a concise progress log and actionable plan. I will 
 
 ## Progress
 
-- Initialized progress plan.
-- Selected first incomplete task: `T11 [DONE] 实现第一阶段命令处理器`.
-- Next step: inspect command handler, session manager, and output formatting surfaces needed for T11.
-- Baseline `npm run typecheck` and `npm run build` passed.
-- Implementation plan: add `formatState` Markdown rendering, replace placeholder command handlers with SessionManager-backed handlers, support optional `/stop` callback injection, and keep `/oc` as a non-mutating placeholder.
-- Implemented `src/output/formatState.ts`, SessionManager-backed command handlers, `CommandRouter` SessionManager injection, and user-facing `/cc` path-policy errors.
-- Post-change `npm run typecheck` and `npm run build` passed.
-- Next step: run focused fake-reply acceptance checks for `/state`, `/cc`, `/close`, `/stop`, and `/oc`.
-- Focused fake-reply acceptance checks passed after enforcing running-state rejection before `/cc` argument validation.
-- Marked `T11` as `[DONE]` in `TODO.md` with the completion record.
-- Next step: review final diff, commit T11 changes, and stop.
+- Existing progress log showed T11 as completed in the previous commit.
+- Selected first incomplete task: `T12 [TODO] 增加 FakeReplySink 和 FakeBackend 便于本地集成测试`.
+- T12 implementation plan:
+  1. Inspect command routing, backend event types, session manager construction, config/state helpers, and package scripts.
+  2. Add `FakeReplySink` that records `sendText` and `sendMarkdown` calls.
+  3. Add `FakeBackendAdapter` whose `send` method returns deterministic `text` and `done` events.
+  4. Add a local fake-message runner or equivalent script that builds an `IncomingMessage`, runs `CommandRouter`, and routes non-command messages to the fake backend.
+  5. Add or update scripts so the fake path can be exercised without DingTalk or Claude Code.
+  6. Run formatting, typecheck/build, and focused fake-route validation.
+  7. Mark T12 `[DONE]` with completion notes, commit the task changes, and stop.
+- Inspected `CommandRouter`, command handlers, backend/message/reply/session types, `SessionManager`, `StateStore`, and `PathPolicy`.
+- Design decision: implement fake testing as reusable exported classes plus a `runFakeMessage` helper/CLI using the real `CommandRouter` and `SessionManager`, with ephemeral temp state by default so it requires neither DingTalk nor Claude Code.
+- Implemented `FakeReplySink`, `FakeBackendAdapter`, `runFakeMessage` helper/CLI, testing exports, and the `npm run fake:message` script.
+- Validation passed: `npm run typecheck`, `npm run build`, and `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`.
+- Marked `T12` as `[DONE]` in `TODO.md` with the completion record.
+- Next step: review final diff, commit T12 changes, and stop.

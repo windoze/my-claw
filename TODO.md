@@ -180,7 +180,7 @@
 
 完成记录：2026-07-06 实现 `src/output/formatState.ts`，将 `SessionManager.getStateSummary()` 渲染为不包含 `clientSecret`、完整配置或环境变量的 Markdown 状态摘要，并截断显示 session ID；新增 SessionManager 驱动的命令处理器，完成 `/state`、`/cc <dir>`、`/close`、`/stop` 状态层行为和 `/oc` 第二阶段占位回复；`CommandRouter` 支持注入 `SessionManager` 与后续后端 stop 回调，`/cc` 和 `/close` 在运行中优先返回忙碌拒绝，`/cc` 参数缺失返回明确用法，路径白名单错误可安全回复给用户。已验证 `npm run typecheck`、`npm run build`，并通过本地 `tsx` fake reply acceptance 覆盖 `/state`、`/cc` 缺参、带空格路径切换、运行中拒绝切换、白名单外目录拒绝、session ID 脱敏、`/close`、`/stop` idle/running/stopping 和 `/oc` 不改变状态。
 
-## T12 [TODO] 增加 FakeReplySink 和 FakeBackend 便于本地集成测试
+## T12 [DONE] 增加 FakeReplySink 和 FakeBackend 便于本地集成测试
 
 阶段：第一阶段，本地验证。
 
@@ -193,6 +193,8 @@
 实现细节：如果项目暂不引入测试框架，至少提供一个开发脚本用于手工运行 fake 消息；后续可替换为 Vitest。
 
 验收：不用钉钉、不用 Claude Code，也能验证 `/state`、`/cc`、`/close`、普通消息转 fake 后端的完整路径。
+
+完成记录：2026-07-06 新增 `src/testing/FakeReplySink.ts`，按调用顺序记录 `sendText`/`sendMarkdown`，并提供独立 text/Markdown 回复数组；新增 `src/testing/FakeBackendAdapter.ts`，记录发送请求并返回固定 `AgentEvent.text` 与 `AgentEvent.done`；新增 `src/testing/runFakeMessage.ts` 和 `src/testing/index.ts`，可构造 fake `IncomingMessage`，通过真实 `CommandRouter`、`SessionManager` 和普通消息 fake 后端路径执行本地验证；新增 `npm run fake:message` 开发脚本，默认或显式消息均可在无钉钉、无 Claude Code 情况下验证 `/state`、`/cc`、普通消息和 `/close` 完整路径。已验证 `npm run typecheck`、`npm run build` 和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 通过。
 
 ## T13 [TODO] 定义 BackendAdapter 与 BackendRegistry
 
