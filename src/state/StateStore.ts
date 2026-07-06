@@ -5,15 +5,15 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { AppError } from "../utils/errors.js";
+import { createLogger, type Logger } from "../utils/logger.js";
 import { resolveUserPath } from "../utils/path.js";
 import type { AppState, RuntimeState } from "./types.js";
 
 export const DEFAULT_STATE_FILE_NAME = ".agent-dingtalk-state.json";
 
-/** Minimal logger surface used before the project-wide logger exists. */
-export interface StateStoreLogger {
-  warn(message: string): void;
-}
+/** Minimal logger surface needed for recoverable state warnings. */
+export type StateStoreLogger = Pick<Logger, "warn">;
 
 /** Options for choosing the state location and warning destination. */
 export interface StateStoreOptions {
@@ -29,7 +29,7 @@ export type StateStoreErrorCode =
   | "STATE_BACKUP_FAILED";
 
 /** Error raised when state cannot be read, written, or backed up. */
-export class StateStoreError extends Error {
+export class StateStoreError extends AppError {
   public readonly code: StateStoreErrorCode;
   public readonly statePath: string;
 
@@ -39,14 +39,10 @@ export class StateStoreError extends Error {
     statePath: string,
     cause?: unknown,
   ) {
-    super(message);
+    super(code, message, { cause });
     this.name = "StateStoreError";
     this.code = code;
     this.statePath = statePath;
-
-    if (cause !== undefined) {
-      this.cause = cause;
-    }
   }
 }
 
@@ -135,7 +131,7 @@ export class StateStore {
   public constructor(options: StateStoreOptions = {}) {
     this.statePath = resolveStatePath(options);
     this.tmpPath = `${this.statePath}.tmp`;
-    this.logger = options.logger ?? consoleStateStoreLogger;
+    this.logger = options.logger ?? createLogger("state");
   }
 
   /** Reads state for process startup and persists an idle runtime recovery if needed. */
@@ -312,9 +308,3 @@ function isSameRuntime(left: RuntimeState, right: RuntimeState): boolean {
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === code;
 }
-
-const consoleStateStoreLogger: StateStoreLogger = {
-  warn(message: string): void {
-    console.warn(message);
-  },
-};

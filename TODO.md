@@ -84,7 +84,7 @@
 
 完成记录：2026-07-06 实现 `src/state/types.ts`、`src/state/StateStore.ts` 和 `src/state/index.ts`，定义 `RuntimeStatus`、`AppState`、默认 session、已知项目和运行任务状态；`StateStore` 默认使用项目根目录 `.agent-dingtalk-state.json`，支持缺失状态文件自动创建、临时文件加 rename 原子写入、损坏或结构无效状态文件备份为 `.agent-dingtalk-state.json.bak.<timestamp>` 后重建默认状态并输出 warn；启动加载会保留 `activeProject`、`defaultSession` 和 `knownProjects`，同时强制恢复 `runtime.status = "idle"` 且 `currentTask = null` 并持久化。`startApp()` 已接入启动状态加载。已验证 `npm run typecheck`、`npm run build`，以及缺失状态创建、状态读写、重启恢复项目/session、运行状态恢复为 idle、损坏 JSON 备份并重建默认状态、原子写入临时文件清理场景。
 
-## T06 [TODO] 增加日志工具和错误类型
+## T06 [DONE] 增加日志工具和错误类型
 
 阶段：第一阶段，基础设施。
 
@@ -97,6 +97,8 @@
 实现细节：顶层启动异常由 `src/index.ts` 捕获并通过 logger 输出；后续消息处理异常必须由调用方捕获，不能让单条消息导致进程退出。
 
 验收：模块可以创建带 scope 的 logger；`UserFacingError.safeMessage` 可以直接用于用户回复；敏感字段不会被默认日志格式输出。
+
+完成记录：2026-07-06 实现 `src/utils/logger.ts` 和 `src/utils/errors.ts`，提供带时间、级别、scope、消息的 `createLogger(scope)`，支持 `debug`、`info`、`warn`、`error`，默认对 `clientSecret`、token、Authorization、密码、API key 和完整环境变量对象做脱敏；新增 `AppError` 和 `UserFacingError`，并让现有配置、路径、白名单和状态存储错误继承可分类错误基类；`src/index.ts` 顶层启动异常改为通过 scoped logger 输出，`src/app.ts` 和 `StateStore` 不再直接使用 console 输出。已验证 `npm run typecheck`、`npm run build`、logger 时间/级别/scope/消息格式、敏感字段脱敏和 `UserFacingError.safeMessage`。
 
 ## T07 [TODO] 定义统一消息、回复和 Agent 环境类型
 

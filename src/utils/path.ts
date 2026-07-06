@@ -4,6 +4,8 @@ import { realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
 
+import { AppError } from "./errors.js";
+
 /** Error categories produced while resolving a user-provided directory path. */
 export type PathResolutionErrorCode =
   | "PATH_NOT_FOUND"
@@ -11,7 +13,7 @@ export type PathResolutionErrorCode =
   | "PATH_NOT_ACCESSIBLE";
 
 /** Error raised when a path cannot be resolved to an existing directory. */
-export class PathResolutionError extends Error {
+export class PathResolutionError extends AppError {
   public readonly code: PathResolutionErrorCode;
   public readonly inputPath: string;
   public readonly resolvedPath?: string;
@@ -23,15 +25,11 @@ export class PathResolutionError extends Error {
     resolvedPath?: string,
     cause?: unknown,
   ) {
-    super(message);
+    super(code, message, { cause });
     this.name = "PathResolutionError";
     this.code = code;
     this.inputPath = inputPath;
     this.resolvedPath = resolvedPath;
-
-    if (cause !== undefined) {
-      this.cause = cause;
-    }
   }
 }
 

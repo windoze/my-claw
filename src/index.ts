@@ -1,15 +1,9 @@
 import { startApp } from "./app.js";
+import { createLogger } from "./utils/index.js";
 
-function formatStartupError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack ?? error.message;
-  }
-
-  return String(error);
-}
+const logger = createLogger("startup");
 
 startApp().catch((error: unknown) => {
-  console.error("Failed to start DingTalk Agent gateway.");
-  console.error(formatStartupError(error));
+  logger.error("Failed to start DingTalk Agent gateway.", { error });
   process.exitCode = 1;
 });

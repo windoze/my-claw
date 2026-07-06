@@ -7,6 +7,7 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { z } from "zod";
 
 import { PathPolicy, PathPolicyError } from "../security/PathPolicy.js";
+import { AppError } from "../utils/errors.js";
 import { resolveUserPath } from "../utils/path.js";
 import { appConfigSchema } from "./schema.js";
 import type { AppConfig } from "./types.js";
@@ -23,17 +24,14 @@ export interface LoadConfigOptions {
 }
 
 /** Error type for failures that should clearly identify the affected config file. */
-export class ConfigLoadError extends Error {
+export class ConfigLoadError extends AppError {
+  public readonly code = "CONFIG_LOAD_FAILED";
   public readonly configPath: string;
 
   public constructor(message: string, configPath: string, cause?: unknown) {
-    super(message);
+    super("CONFIG_LOAD_FAILED", message, { cause });
     this.name = "ConfigLoadError";
     this.configPath = configPath;
-
-    if (cause !== undefined) {
-      this.cause = cause;
-    }
   }
 }
 
