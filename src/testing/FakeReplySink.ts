@@ -1,6 +1,6 @@
 /** In-memory reply sink for local routing and command integration checks. */
 
-import type { ReplySink } from "../output/types.js";
+import type { ReplyFile, ReplySink } from "../output/types.js";
 
 /** Recorded reply call made by code under test. */
 export type FakeReplyCall =
@@ -11,6 +11,10 @@ export type FakeReplyCall =
   | {
       type: "markdown";
       markdown: string;
+    }
+  | {
+      type: "file";
+      file: ReplyFile;
     };
 
 /** Reply sink that records all text and Markdown sends in call order. */
@@ -18,6 +22,7 @@ export class FakeReplySink implements ReplySink {
   public readonly calls: FakeReplyCall[] = [];
   public readonly textReplies: string[] = [];
   public readonly markdownReplies: string[] = [];
+  public readonly fileReplies: ReplyFile[] = [];
 
   /** Stores a text reply without sending it to DingTalk. */
   public async sendText(text: string): Promise<void> {
@@ -31,11 +36,18 @@ export class FakeReplySink implements ReplySink {
     this.calls.push({ type: "markdown", markdown });
   }
 
+  /** Stores a file reply without sending it to DingTalk. */
+  public async sendFile(file: ReplyFile): Promise<void> {
+    this.fileReplies.push(file);
+    this.calls.push({ type: "file", file });
+  }
+
   /** Clears all recorded calls so the same sink can be reused across scenarios. */
   public clear(): void {
     this.calls.length = 0;
     this.textReplies.length = 0;
     this.markdownReplies.length = 0;
+    this.fileReplies.length = 0;
   }
 
   /** Returns text reply bodies in the order they were sent. */
@@ -46,5 +58,10 @@ export class FakeReplySink implements ReplySink {
   /** Returns Markdown reply bodies in the order they were sent. */
   public getMarkdownReplies(): string[] {
     return [...this.markdownReplies];
+  }
+
+  /** Returns file reply descriptors in the order they were sent. */
+  public getFileReplies(): ReplyFile[] {
+    return [...this.fileReplies];
   }
 }

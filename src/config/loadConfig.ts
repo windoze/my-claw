@@ -120,6 +120,11 @@ async function normalizeConfigPaths(config: AppConfig, configPath: string): Prom
     configPath,
     () => PathPolicy.create(config.security.allowedRootDirs, { baseDir: configDir }),
   );
+  const downloadPathPolicy = await mapPathPolicyError(
+    "security.downloadAllowedDirs",
+    configPath,
+    () => PathPolicy.create(config.security.downloadAllowedDirs, { baseDir: configDir }),
+  );
   const defaultCwd = await mapPathPolicyError(
     "defaultEnvironment.cwd",
     configPath,
@@ -135,6 +140,7 @@ async function normalizeConfigPaths(config: AppConfig, configPath: string): Prom
     security: {
       ...config.security,
       allowedRootDirs: [...pathPolicy.allowedRootDirs],
+      downloadAllowedDirs: [...downloadPathPolicy.allowedRootDirs],
     },
   };
 }

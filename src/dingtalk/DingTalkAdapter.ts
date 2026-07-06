@@ -3,7 +3,7 @@
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream-sdk-nodejs";
 
 import { AppError, createLogger, type Logger } from "../utils/index.js";
-import { DingTalkReplySink } from "./DingTalkReplySink.js";
+import { DingTalkFileClient, DingTalkReplySink } from "./DingTalkReplySink.js";
 import { MessageDeduper, type MessageDeduperDecision } from "./MessageDeduper.js";
 import {
   createConnectFailureLogContext,
@@ -35,6 +35,7 @@ export class DingTalkAdapter {
   private readonly config: DingTalkAdapterOptions["config"];
   private readonly handler: DingTalkAdapterOptions["handler"];
   private readonly createReplySink: DingTalkReplySinkFactory;
+  private readonly fileClient: DingTalkFileClient;
   private readonly client: DingTalkStreamClient;
   private readonly deduper: MessageDeduper;
   private readonly logger: Logger;
@@ -47,11 +48,17 @@ export class DingTalkAdapter {
     this.config = options.config;
     this.handler = options.handler;
     this.logger = options.logger ?? createLogger("dingtalk");
+    this.fileClient = new DingTalkFileClient({
+      config: this.config,
+      logger: this.logger,
+    });
     this.createReplySink =
       options.createReplySink ??
       ((context) =>
         new DingTalkReplySink({
           context,
+          config: this.config,
+          fileClient: this.fileClient,
           logger: this.logger,
         }));
     this.topic = options.topic ?? TOPIC_ROBOT;

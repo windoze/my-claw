@@ -4,6 +4,7 @@ import type { IncomingMessage } from "../messages/types.js";
 import type { ReplySink } from "../output/types.js";
 import { UserFacingError } from "../utils/errors.js";
 import { createLogger, type Logger } from "../utils/logger.js";
+import type { FileService } from "../files/FileService.js";
 import {
   createDefaultCommandHandlers,
   createSessionCommandHandlers,
@@ -20,6 +21,7 @@ const GENERIC_COMMAND_ERROR_MESSAGE = "命令处理失败，请稍后重试或�
 export interface CommandRouterOptions {
   handlers?: Partial<CommandHandlers>;
   sessionManager?: SessionManager;
+  fileService?: FileService;
   stopCurrentTask?: StopCommandCallback;
   logger?: Logger;
   genericErrorMessage?: string;
@@ -107,6 +109,7 @@ function mergeHandlers(
     state: overrides.state ?? defaults.state,
     stop: overrides.stop ?? defaults.stop,
     oc: overrides.oc ?? defaults.oc,
+    dl: overrides.dl ?? defaults.dl,
     invalid: overrides.invalid ?? defaults.invalid,
     unknown: overrides.unknown ?? defaults.unknown,
   };
@@ -116,6 +119,7 @@ function createBaseHandlers(options: CommandRouterOptions): CommandHandlers {
   if (options.sessionManager !== undefined) {
     return createSessionCommandHandlers({
       sessionManager: options.sessionManager,
+      fileService: options.fileService,
       stopCurrentTask: options.stopCurrentTask,
     });
   }

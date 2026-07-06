@@ -19,6 +19,9 @@ export type ClaudeCodePermissionMode = (typeof CLAUDE_CODE_PERMISSION_MODES)[num
 /** Output renderer modes accepted by configuration. */
 export type OutputMode = "markdown";
 
+/** Default per-file download limit used when security.maxDownloadFileBytes is omitted. */
+export const DEFAULT_MAX_DOWNLOAD_FILE_BYTES = 20 * 1024 * 1024;
+
 /** Agent execution environment shared by the default context and named projects. */
 export interface AgentEnvironmentConfig {
   backend: AgentBackend;
@@ -44,6 +47,8 @@ export interface DingTalkConfig {
 /** Filesystem allowlist used before opening local Agent working directories. */
 export interface SecurityConfig {
   allowedRootDirs: string[];
+  downloadAllowedDirs: string[];
+  maxDownloadFileBytes: number;
 }
 
 /** Claude Code backend defaults passed to the Claude Agent SDK adapter. */

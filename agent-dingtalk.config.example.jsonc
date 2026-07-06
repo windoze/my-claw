@@ -23,7 +23,9 @@
     }
   ],
   "security": {
-    "allowedRootDirs": ["."]
+    "allowedRootDirs": ["."],
+    "downloadAllowedDirs": ["."],
+    "maxDownloadFileBytes": 20971520
   },
   "claudeCode": {
     "permissionMode": "acceptEdits",

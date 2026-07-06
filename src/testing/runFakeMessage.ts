@@ -10,10 +10,11 @@ import { createIncomingMessageHandler, type IncomingMessageHandler } from "../ap
 import { BackendRegistry } from "../backend/BackendRegistry.js";
 import type { AgentEvent } from "../backend/types.js";
 import { CommandRouter } from "../commands/CommandRouter.js";
-import type { AppConfig } from "../config/types.js";
+import { DEFAULT_MAX_DOWNLOAD_FILE_BYTES, type AppConfig } from "../config/types.js";
 import type { ConversationType, IncomingMessage } from "../messages/types.js";
 import { OutputRenderer } from "../output/OutputRenderer.js";
 import type { ReplySink } from "../output/types.js";
+import { FileService } from "../files/FileService.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { SecurityGate } from "../security/SecurityGate.js";
 import { SessionManager } from "../session/SessionManager.js";
@@ -47,6 +48,7 @@ export interface FakeMessageRuntime {
   replySink: FakeReplySink;
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
+  fileService: FileService;
   securityGate: SecurityGate;
   handleIncomingMessage: IncomingMessageHandler;
   backend: FakeBackendAdapter;
@@ -123,7 +125,11 @@ export async function createFakeMessageRuntime(
     ["opencode", backend],
   ]);
   const outputRenderer = new OutputRenderer({ config: config.output });
-  const commandRouter = new CommandRouter({ sessionManager });
+  const fileService = new FileService({
+    pathPolicy,
+    maxFileBytes: config.security.maxDownloadFileBytes,
+  });
+  const commandRouter = new CommandRouter({ sessionManager, fileService });
   const securityGate = new SecurityGate({ config: config.dingtalk });
   const handleIncomingMessage = createIncomingMessageHandler({
     commandRouter,
@@ -141,6 +147,7 @@ export async function createFakeMessageRuntime(
     replySink,
     backendRegistry,
     outputRenderer,
+    fileService,
     securityGate,
     handleIncomingMessage,
     backend,
@@ -217,6 +224,8 @@ function createFakeConfig(
     },
     security: {
       allowedRootDirs: [...allowedRootDirs],
+      downloadAllowedDirs: [...allowedRootDirs],
+      maxDownloadFileBytes: DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
     },
     claudeCode: {
       maxTurns: 1,
@@ -419,6 +428,10 @@ function formatHandledBy(result: RunFakeMessageResult): string {
 function formatReplyCall(call: FakeReplyCall): string {
   if (call.type === "text") {
     return `[text] ${call.text}`;
+  }
+
+  if (call.type === "file") {
+    return `[file] ${call.file.name} (${call.file.sizeBytes} bytes) ${call.file.path}`;
   }
 
   return `[markdown]\n${call.markdown}`;

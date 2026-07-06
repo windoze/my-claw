@@ -10,6 +10,7 @@ import { AppError } from "./errors.js";
 export type PathResolutionErrorCode =
   | "PATH_NOT_FOUND"
   | "PATH_NOT_DIRECTORY"
+  | "PATH_NOT_FILE"
   | "PATH_NOT_ACCESSIBLE";
 
 /** Error raised when a path cannot be resolved to an existing directory. */
@@ -74,6 +75,31 @@ export async function realpathDir(inputPath: string): Promise<string> {
     throw new PathResolutionError(
       "PATH_NOT_DIRECTORY",
       `Path is not a directory: ${inputPath}`,
+      inputPath,
+      resolvedPath,
+    );
+  }
+
+  return nodePath.resolve(resolvedPath);
+}
+
+/** Resolves an existing regular file and follows symlinks to its real filesystem target. */
+export async function realpathFile(inputPath: string): Promise<string> {
+  const absolutePath = nodePath.resolve(inputPath);
+  let resolvedPath: string;
+
+  try {
+    resolvedPath = await realpath(absolutePath);
+  } catch (error: unknown) {
+    throw createPathResolutionError(error, inputPath, absolutePath);
+  }
+
+  const stats = await statResolvedPath(resolvedPath, inputPath);
+
+  if (!stats.isFile()) {
+    throw new PathResolutionError(
+      "PATH_NOT_FILE",
+      `Path is not a regular file: ${inputPath}`,
       inputPath,
       resolvedPath,
     );

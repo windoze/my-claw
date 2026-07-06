@@ -20,7 +20,7 @@ const PROJECT_BUSY_MESSAGE =
 const PROJECT_STOPPING_MESSAGE = "当前任务正在中断，暂时不能切换项目。";
 
 /** Commands whose availability is decided by the session state machine. */
-export type StatefulCommandName = "cc" | "oc" | "close" | "state" | "stop";
+export type StatefulCommandName = "cc" | "oc" | "close" | "state" | "stop" | "dl";
 
 /** User-safe session manager error categories. */
 export type SessionManagerErrorCode =

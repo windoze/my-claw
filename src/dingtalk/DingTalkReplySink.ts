@@ -1,15 +1,21 @@
-/** Reply sink that sends text and Markdown messages through DingTalk session webhooks. */
+/** Reply sink that sends text, Markdown, and file messages through DingTalk APIs. */
 
-import type { ReplySink } from "../output/types.js";
+import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+
+import type { DingTalkConfig } from "../config/types.js";
+import type { ReplyFile, ReplySink } from "../output/types.js";
 import { AppError, createLogger, type Logger } from "../utils/index.js";
 import type { DingTalkReplyContext } from "./types.js";
 
 type WebhookFetch = typeof fetch;
 
-type DingTalkReplyMessageType = "text" | "markdown";
+type DingTalkReplyMessageType = "text" | "markdown" | "file";
 
 interface DingTalkReplySinkOptions {
   context: DingTalkReplyContext;
+  config?: DingTalkConfig;
+  fileClient?: DingTalkFileClient;
   logger?: Logger;
   fetch?: WebhookFetch;
   now?: () => number;
@@ -30,12 +36,36 @@ interface DingTalkMarkdownPayload {
   };
 }
 
-type DingTalkReplyPayload = DingTalkTextPayload | DingTalkMarkdownPayload;
+interface DingTalkFilePayload {
+  msgtype: "file";
+  file: {
+    media_id: string;
+  };
+}
+
+type DingTalkReplyPayload = DingTalkTextPayload | DingTalkMarkdownPayload | DingTalkFilePayload;
 
 interface DingTalkResponseSummary {
   code?: string;
   message?: string;
   bodyPreview?: string;
+}
+
+interface DingTalkAccessTokenCache {
+  token: string;
+  expiresAtMs: number;
+}
+
+interface DingTalkFileClientOptions {
+  config: DingTalkConfig;
+  logger?: Logger;
+  fetch?: WebhookFetch;
+  now?: () => number;
+}
+
+interface MultipartFileBody {
+  body: ArrayBuffer;
+  contentType: string;
 }
 
 const DEFAULT_MARKDOWN_TITLE = "Agent 回复";
@@ -44,16 +74,166 @@ const MAX_RESPONSE_PREVIEW_CHARS = 500;
 const HTTP_OK_MIN = 200;
 const HTTP_OK_MAX_EXCLUSIVE = 300;
 const SECONDS_TIMESTAMP_MAX = 9_999_999_999;
+const ACCESS_TOKEN_URL = "https://oapi.dingtalk.com/gettoken";
+const MEDIA_UPLOAD_URL = "https://oapi.dingtalk.com/media/upload";
+const ACCESS_TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+/** Uploads local files to DingTalk media storage and caches the required access token. */
+export class DingTalkFileClient {
+  private readonly config: DingTalkConfig;
+  private readonly logger: Logger;
+  private readonly fetch: WebhookFetch;
+  private readonly now: () => number;
+  private tokenCache: DingTalkAccessTokenCache | null = null;
+
+  public constructor(options: DingTalkFileClientOptions) {
+    this.config = options.config;
+    this.logger = options.logger ?? createLogger("dingtalk:file");
+    this.fetch = options.fetch ?? fetch;
+    this.now = options.now ?? Date.now;
+  }
+
+  /** Uploads a local regular file and returns the media id DingTalk expects in file messages. */
+  public async uploadFile(file: ReplyFile): Promise<string> {
+    const accessToken = await this.getAccessToken();
+    const uploadUrl = new URL(MEDIA_UPLOAD_URL);
+    uploadUrl.searchParams.set("access_token", accessToken);
+    uploadUrl.searchParams.set("type", "file");
+    const multipart = await createMultipartFileBody(file);
+
+    try {
+      const response = await this.fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": multipart.contentType,
+        },
+        body: multipart.body,
+      });
+      const responseText = await response.text();
+      const summary = summarizeDingTalkResponse(responseText);
+      const mediaId = readMediaId(responseText);
+
+      if (!isSuccessfulReply(response, summary) || mediaId === undefined) {
+        this.logger.error("DingTalk media upload failed.", {
+          status: response.status,
+          statusText: response.statusText,
+          dingtalkCode: summary.code,
+          dingtalkMessage: summary.message,
+          responseBody: summary.bodyPreview,
+          fileName: file.name,
+          sizeBytes: file.sizeBytes,
+        });
+        throw new AppError(
+          "DINGTALK_FILE_UPLOAD_FAILED",
+          "Failed to upload DingTalk file media.",
+          {
+            cause: {
+              status: response.status,
+              statusText: response.statusText,
+              dingtalkCode: summary.code,
+              dingtalkMessage: summary.message,
+            },
+          },
+        );
+      }
+
+      this.logger.debug("DingTalk media uploaded.", {
+        fileName: file.name,
+        sizeBytes: file.sizeBytes,
+      });
+      return mediaId;
+    } catch (error: unknown) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      this.logger.error("DingTalk media upload request failed.", {
+        error,
+        fileName: file.name,
+        sizeBytes: file.sizeBytes,
+      });
+      throw new AppError(
+        "DINGTALK_FILE_UPLOAD_REQUEST_FAILED",
+        "Failed to request DingTalk file media upload.",
+        { cause: error },
+      );
+    }
+  }
+
+  private async getAccessToken(): Promise<string> {
+    const cachedToken = this.tokenCache;
+
+    if (cachedToken !== null && cachedToken.expiresAtMs > this.now()) {
+      return cachedToken.token;
+    }
+
+    const tokenUrl = new URL(ACCESS_TOKEN_URL);
+    tokenUrl.searchParams.set("appkey", this.config.clientId);
+    tokenUrl.searchParams.set("appsecret", this.config.clientSecret);
+
+    try {
+      const response = await this.fetch(tokenUrl);
+      const responseText = await response.text();
+      const summary = summarizeDingTalkResponse(responseText);
+      const token = readAccessToken(responseText);
+      const expiresInSeconds = readAccessTokenExpiresIn(responseText);
+
+      if (!isSuccessfulReply(response, summary) || token === undefined) {
+        this.logger.error("DingTalk access token request failed.", {
+          status: response.status,
+          statusText: response.statusText,
+          dingtalkCode: summary.code,
+          dingtalkMessage: summary.message,
+          responseBody: summary.bodyPreview,
+        });
+        throw new AppError(
+          "DINGTALK_FILE_TOKEN_FAILED",
+          "Failed to obtain DingTalk access token.",
+          {
+            cause: {
+              status: response.status,
+              statusText: response.statusText,
+              dingtalkCode: summary.code,
+              dingtalkMessage: summary.message,
+            },
+          },
+        );
+      }
+
+      this.tokenCache = {
+        token,
+        expiresAtMs:
+          this.now() + expiresInSeconds * 1000 - ACCESS_TOKEN_EXPIRY_SKEW_MS,
+      };
+      return token;
+    } catch (error: unknown) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      this.logger.error("DingTalk access token request failed.", { error });
+      throw new AppError(
+        "DINGTALK_FILE_TOKEN_REQUEST_FAILED",
+        "Failed to request DingTalk access token.",
+        { cause: error },
+      );
+    }
+  }
+}
 
 /** Sends replies back to the DingTalk conversation that produced one robot callback. */
 export class DingTalkReplySink implements ReplySink {
   private readonly context: DingTalkReplyContext;
+  private readonly config?: DingTalkConfig;
+  private readonly fileClient?: DingTalkFileClient;
   private readonly logger: Logger;
   private readonly fetch: WebhookFetch;
   private readonly now: () => number;
 
   public constructor(options: DingTalkReplySinkOptions) {
     this.context = options.context;
+    this.config = options.config;
+    this.fileClient = options.fileClient;
     this.logger = options.logger ?? createLogger("dingtalk:reply");
     this.fetch = options.fetch ?? fetch;
     this.now = options.now ?? Date.now;
@@ -77,6 +257,19 @@ export class DingTalkReplySink implements ReplySink {
       markdown: {
         title: extractMarkdownTitle(normalizedMarkdown),
         text: normalizedMarkdown,
+      },
+    });
+  }
+
+  /** Uploads a local file to DingTalk and sends a file message through the session webhook. */
+  public async sendFile(file: ReplyFile): Promise<void> {
+    const fileClient = this.fileClient ?? this.createFileClient();
+    const mediaId = await fileClient.uploadFile(file);
+
+    await this.sendPayload("file", {
+      msgtype: "file",
+      file: {
+        media_id: mediaId,
       },
     });
   }
@@ -180,6 +373,52 @@ export class DingTalkReplySink implements ReplySink {
 
     return webhook;
   }
+
+  private createFileClient(): DingTalkFileClient {
+    if (this.config === undefined) {
+      throw new AppError(
+        "DINGTALK_FILE_CONFIG_MISSING",
+        "DingTalk file sending requires DingTalk credentials.",
+      );
+    }
+
+    return new DingTalkFileClient({
+      config: this.config,
+      logger: this.logger,
+      fetch: this.fetch,
+      now: this.now,
+    });
+  }
+}
+
+async function createMultipartFileBody(file: ReplyFile): Promise<MultipartFileBody> {
+  const boundary = `----my-claw-${randomUUID()}`;
+  const header = Buffer.from(
+    [
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="media"; filename="${escapeMultipartFileName(file.name)}"`,
+      "Content-Type: application/octet-stream",
+      "",
+      "",
+    ].join("\r\n"),
+  );
+  const content = await readFile(file.path);
+  const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+
+  return {
+    body: toArrayBuffer(Buffer.concat([header, content, footer])),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+function escapeMultipartFileName(fileName: string): string {
+  return fileName.replace(/[\r\n"]/g, "_");
+}
+
+function toArrayBuffer(buffer: Buffer): ArrayBuffer {
+  const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+  new Uint8Array(arrayBuffer).set(buffer);
+  return arrayBuffer;
 }
 
 /** Normalizes Markdown text before sending it to DingTalk. */
@@ -301,6 +540,56 @@ function readResponseMessage(value: Record<string, unknown>): string | undefined
   }
 
   return undefined;
+}
+
+function readMediaId(responseText: string): string | undefined {
+  const parsed = parseResponseRecord(responseText);
+  const mediaId = parsed?.media_id ?? parsed?.mediaId;
+
+  if (typeof mediaId === "string" && mediaId.length > 0) {
+    return mediaId;
+  }
+
+  return undefined;
+}
+
+function readAccessToken(responseText: string): string | undefined {
+  const parsed = parseResponseRecord(responseText);
+  const token = parsed?.access_token ?? parsed?.accessToken;
+
+  if (typeof token === "string" && token.length > 0) {
+    return token;
+  }
+
+  return undefined;
+}
+
+function readAccessTokenExpiresIn(responseText: string): number {
+  const parsed = parseResponseRecord(responseText);
+  const expiresIn = parsed?.expires_in ?? parsed?.expireIn ?? parsed?.expiresIn;
+
+  if (typeof expiresIn === "number" && Number.isFinite(expiresIn) && expiresIn > 0) {
+    return expiresIn;
+  }
+
+  if (typeof expiresIn === "string") {
+    const parsedExpiresIn = Number.parseInt(expiresIn, 10);
+
+    if (Number.isFinite(parsedExpiresIn) && parsedExpiresIn > 0) {
+      return parsedExpiresIn;
+    }
+  }
+
+  return 7200;
+}
+
+function parseResponseRecord(responseText: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(responseText);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Checks webhook expiration while accepting either seconds or milliseconds timestamps. */

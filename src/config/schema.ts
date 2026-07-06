@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { CLAUDE_CODE_PERMISSION_MODES } from "./types.js";
+import { CLAUDE_CODE_PERMISSION_MODES, DEFAULT_MAX_DOWNLOAD_FILE_BYTES } from "./types.js";
 
 /** Shared non-empty string rule for required configuration text fields. */
 const nonEmptyStringSchema = z.string().min(1, "must not be empty");
@@ -49,8 +49,17 @@ export const securityConfigSchema = z
     allowedRootDirs: z
       .array(nonEmptyStringSchema)
       .min(1, "must contain at least one allowed root directory"),
+    downloadAllowedDirs: z
+      .array(nonEmptyStringSchema)
+      .min(1, "must contain at least one allowed download directory")
+      .optional(),
+    maxDownloadFileBytes: z.number().int().positive().default(DEFAULT_MAX_DOWNLOAD_FILE_BYTES),
   })
-  .strict();
+  .strict()
+  .transform((security) => ({
+    ...security,
+    downloadAllowedDirs: security.downloadAllowedDirs ?? security.allowedRootDirs,
+  }));
 
 /** Validates Claude Code backend behavior defaults. */
 export const claudeCodeConfigSchema = z

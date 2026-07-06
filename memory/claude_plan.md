@@ -13,8 +13,9 @@ Planned steps:
 8. Commit all task-related changes with a clear task-specific message and then stop.
 
 Progress update:
-- First incomplete task identified: `T27 [TODO] 第二阶段实现 /oc <dir> 项目切换`.
-- Latest commit completed T26 and does not indicate unfinished work that changes the T27 scope.
-- Implementation milestone: configuration and state validation now allow `opencode`; `SessionManager` can open Claude Code or OpenCode projects with per-backend known-project keys; `/oc <dir>` is wired through command handlers; `/state` renders `Claude Code` and `OpenCode` labels; fake routing registers the fake backend for both backend names; README no longer describes `/oc` as a placeholder.
-- Validation milestone: `npm run typecheck`, focused T27 fake checks, OpenCode config schema check, `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/oc ." "hello opencode" "/close"`, and `npm run build` all passed.
-- Task record milestone: marked `T27` as `[DONE]` in `TODO.md` with a completion record. Next I will inspect the final status and commit all task-related changes.
+- Current invocation started. I re-read `TODO.md` and selected first incomplete task `T28 [TODO] 第二阶段实现 /dl <path> 本地文件发送`.
+- Latest commit is `[T27] Implement OpenCode project switching`, which does not mention unfinished work directly changing T28 scope.
+- Next steps for T28: inspect config, path policy, command handlers, reply sink, and existing fake/testing surfaces; add the download file service and configuration; wire `/dl`; validate allowed paths, file type, size, symlink escape, DingTalk send failure handling, audit logging, and documentation/task record.
+- Implementation milestone: added `security.downloadAllowedDirs`/`maxDownloadFileBytes`, allowed-file realpath policy checks, `FileService`, `/dl` parser/handler wiring, fake reply file recording, and DingTalk media upload + token-cache backed file replies. Typecheck found several wiring issues; I am correcting those before focused validation.
+- Validation milestone: `npm run typecheck` passed. Focused fake-message checks showed `/dl README.md` and an allowlisted temp file sending as file replies, while an outside file, symlink escape, and oversized file were rejected with basename-only user messages.
+- Completion milestone: directory rejection and simulated DingTalk/file send failure prompts were validated; final `npm run typecheck && npm run build` passed; `T28` is now marked `[DONE]` in `TODO.md` with its completion record. Next step is to commit all T28 changes.

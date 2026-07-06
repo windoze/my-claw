@@ -5,6 +5,7 @@ import {
   PathResolutionError,
   type PathResolutionErrorCode,
   realpathDir,
+  realpathFile,
   resolveUserPath,
 } from "../utils/path.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -98,10 +99,38 @@ export class PathPolicy {
     return realDir;
   }
 
+  /** Resolves a requested file, follows symlinks, and returns its allowed realpath. */
+  public async assertAllowedFile(
+    filePath: string,
+    options: PathPolicyOptions = {},
+  ): Promise<string> {
+    const resolvedPath = resolveUserPath(filePath, options.baseDir);
+    const realFile = await realpathPolicyFile(filePath, resolvedPath);
+
+    if (!this.isAllowedRealPath(realFile)) {
+      throw new PathPolicyError(
+        "PATH_OUTSIDE_ALLOWED_ROOTS",
+        [
+          `File is not under an allowed root: ${realFile}`,
+          `Allowed roots: ${this.allowedRootDirs.join(", ")}`,
+        ].join("\n"),
+        filePath,
+        realFile,
+      );
+    }
+
+    return realFile;
+  }
+
   /** Checks an already-realpathed directory against the policy without touching the filesystem. */
   public isAllowedRealDir(realDir: string): boolean {
+    return this.isAllowedRealPath(realDir);
+  }
+
+  /** Checks an already-realpathed path against the policy without touching the filesystem. */
+  public isAllowedRealPath(realPath: string): boolean {
     return this.allowedRootDirs.some((allowedRootDir) =>
-      isPathInside(realDir, allowedRootDir),
+      isPathInside(realPath, allowedRootDir),
     );
   }
 }
@@ -138,6 +167,25 @@ async function realpathPolicyDir(
   }
 }
 
+/** Converts low-level file resolution failures into policy errors with stable messages. */
+async function realpathPolicyFile(inputPath: string, resolvedPath: string): Promise<string> {
+  try {
+    return await realpathFile(resolvedPath);
+  } catch (error: unknown) {
+    if (error instanceof PathResolutionError) {
+      throw new PathPolicyError(
+        error.code,
+        formatPathResolutionMessage("File", inputPath, error),
+        inputPath,
+        error.resolvedPath,
+        error,
+      );
+    }
+
+    throw error;
+  }
+}
+
 /** Formats directory errors so missing, non-directory, and inaccessible paths are distinct. */
 function formatPathResolutionMessage(
   subject: string,
@@ -149,6 +197,8 @@ function formatPathResolutionMessage(
       return `${subject} does not exist: ${inputPath}`;
     case "PATH_NOT_DIRECTORY":
       return `${subject} is not a directory: ${inputPath}`;
+    case "PATH_NOT_FILE":
+      return `${subject} is not a regular file: ${inputPath}`;
     case "PATH_NOT_ACCESSIBLE":
       return `Unable to access ${subject.toLowerCase()}: ${inputPath}`;
   }

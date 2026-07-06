@@ -4,6 +4,7 @@ import type { IncomingMessage } from "../messages/types.js";
 import { formatState } from "../output/formatState.js";
 import type { ReplySink } from "../output/types.js";
 import type { RuntimeTaskSummary, SessionManager } from "../session/SessionManager.js";
+import type { FileService } from "../files/FileService.js";
 import { UserFacingError } from "../utils/errors.js";
 import type {
   InvalidCommandParseResult,
@@ -45,12 +46,14 @@ export type StopCommandCallback = (
 
 export interface SessionCommandHandlersOptions {
   sessionManager: SessionManager;
+  fileService?: FileService;
   stopCurrentTask?: StopCommandCallback;
 }
 
-const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/oc";
+const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/oc、/dl";
 const CC_USAGE = '用法：/cc <dir>。如果路径包含空格，请使用引号，例如：/cc "/Users/me/My Repo"。';
 const OC_USAGE = '用法：/oc <dir>。如果路径包含空格，请使用引号，例如：/oc "/Users/me/My Repo"。';
+const DL_USAGE = '用法：/dl <path>。相对路径基于当前环境目录；路径包含空格时请使用引号，例如：/dl "docs/report.pdf"。';
 
 /** Creates the first-stage handler set used by CommandRouter by default. */
 export function createDefaultCommandHandlers(): CommandHandlers {
@@ -60,6 +63,7 @@ export function createDefaultCommandHandlers(): CommandHandlers {
     state: handleStatePlaceholder,
     stop: handleSessionCommandPlaceholder,
     oc: handleOpenCodePlaceholder,
+    dl: handleFileDownloadPlaceholder,
     invalid: handleInvalidCommand,
     unknown: handleUnknownCommand,
   };
@@ -69,6 +73,8 @@ export function createDefaultCommandHandlers(): CommandHandlers {
 export function createSessionCommandHandlers(
   options: SessionCommandHandlersOptions,
 ): CommandHandlers {
+  const fileService = options.fileService;
+
   return {
     cc: (context) => handleClaudeProjectCommand(context, options.sessionManager),
     close: (context) => handleCloseProjectCommand(context, options.sessionManager),
@@ -76,6 +82,15 @@ export function createSessionCommandHandlers(
     stop: (context) =>
       handleStopCommand(context, options.sessionManager, options.stopCurrentTask),
     oc: (context) => handleOpenCodeProjectCommand(context, options.sessionManager),
+    dl:
+      fileService === undefined
+        ? handleFileDownloadPlaceholder
+        : (context) =>
+            handleFileDownloadCommand(
+              context,
+              options.sessionManager,
+              fileService,
+            ),
     invalid: handleInvalidCommand,
     unknown: handleUnknownCommand,
   };
@@ -103,6 +118,15 @@ export async function handleOpenCodePlaceholder({
 }: CommandHandlerContext<KnownCommandParseResult>): Promise<void> {
   await replySink.sendText(
     "命令 /oc 已识别，但当前 CommandRouter 尚未接入 SessionManager。",
+  );
+}
+
+/** Handles `/dl` until a FileService is supplied to CommandRouter. */
+export async function handleFileDownloadPlaceholder({
+  replySink,
+}: CommandHandlerContext<KnownCommandParseResult>): Promise<void> {
+  await replySink.sendText(
+    "命令 /dl 已识别，但当前 CommandRouter 尚未接入 FileService。",
   );
 }
 
@@ -148,6 +172,30 @@ export async function handleOpenCodeProjectCommand(
 
   const result = await sessionManager.openOpenCodeProject(dir);
   await replySink.sendText(`已切换到 OpenCode 项目：${result.environment.cwd}`);
+}
+
+/** Handles `/dl <path>` by sending an allowlisted local file through the reply sink. */
+export async function handleFileDownloadCommand(
+  { command, message, replySink }: CommandHandlerContext<KnownCommandParseResult>,
+  sessionManager: SessionManager,
+  fileService: FileService,
+): Promise<void> {
+  await sessionManager.assertCanAcceptCommand("dl");
+  const filePath = readSinglePathArgument(command, DL_USAGE);
+
+  if (filePath === null) {
+    await replySink.sendText(DL_USAGE);
+    return;
+  }
+
+  const environment = await sessionManager.getCurrentEnvironment();
+  const result = await fileService.sendLocalFile({
+    inputPath: filePath,
+    baseDir: environment.cwd,
+    senderId: message.senderId,
+    replySink,
+  });
+  await replySink.sendText(`已发送文件：${result.file.name}`);
 }
 
 /** Handles `/close` by returning command routing to the configured default environment. */
@@ -208,6 +256,22 @@ export async function handleUnknownCommand({
 
 /** Reads the single directory argument expected by project-switching commands. */
 function readSingleDirectoryArgument(
+  command: KnownCommandParseResult,
+  usage: string,
+): string | null {
+  if (command.args.length === 0) {
+    return null;
+  }
+
+  if (command.args.length > 1) {
+    throw new UserFacingError("COMMAND_USAGE_INVALID", usage);
+  }
+
+  return command.args[0] ?? null;
+}
+
+/** Reads the single path argument expected by local file commands. */
+function readSinglePathArgument(
   command: KnownCommandParseResult,
   usage: string,
 ): string | null {

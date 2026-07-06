@@ -12,10 +12,11 @@ import { CommandRouter } from "./commands/index.js";
 import { loadConfig, type LoadConfigOptions } from "./config/index.js";
 import type { AppConfig } from "./config/types.js";
 import { DingTalkAdapter, type DingTalkStreamClientFactory } from "./dingtalk/index.js";
+import { FileService } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import { OutputRenderer } from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
-import { SecurityGate, type SecurityGateDecision } from "./security/index.js";
+import { PathPolicy, SecurityGate, type SecurityGateDecision } from "./security/index.js";
 import { createSessionManager, type SessionManager } from "./session/index.js";
 import { StateStore } from "./state/index.js";
 import { AppError, createLogger, UserFacingError, type Logger } from "./utils/index.js";
@@ -57,6 +58,7 @@ export interface AppRuntime {
   sessionManager: SessionManager;
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
+  fileService: FileService;
   commandRouter: CommandRouter;
   securityGate: SecurityGate;
   dingtalkAdapter: DingTalkAdapter;
@@ -97,8 +99,14 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     config: config.output,
     logger: createLogger("output"),
   });
+  const fileService = new FileService({
+    pathPolicy: await PathPolicy.create(config.security.downloadAllowedDirs),
+    maxFileBytes: config.security.maxDownloadFileBytes,
+    logger: createLogger("files"),
+  });
   const commandRouter = new CommandRouter({
     sessionManager,
+    fileService,
     logger: createLogger("commands"),
   });
   const securityGate = new SecurityGate({
@@ -136,6 +144,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     sessionManager,
     backendRegistry,
     outputRenderer,
+    fileService,
     commandRouter,
     securityGate,
     dingtalkAdapter,

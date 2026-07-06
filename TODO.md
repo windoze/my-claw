@@ -436,7 +436,7 @@
 
 完成记录：2026-07-06 完成 `/oc <dir>` OpenCode 项目切换：配置和状态校验已允许 `opencode`，`SessionManager` 现在按显式 backend 打开 Claude Code 或 OpenCode 项目，`/oc` 复用 `/cc` 的路径展开、`realpath` 和 `allowedRootDirs` 校验，并在非 idle 状态下沿用项目切换拒绝规则；`activeProject.backend` 会保存为 `opencode`，`knownProjects` 改用 `backend:cwd` 结构化 key 并兼容旧 cwd-only Claude Code 状态，避免同目录下 Claude Code/OpenCode session 混淆；`/state` 以 `Claude Code`/`OpenCode` 展示当前、默认、运行任务和已知项目后端；`/close` 对两种后端回默认环境，普通消息和 `/stop` 通过当前环境的 `BackendRegistry` adapter 执行。fake runtime 已注册同一个 fake backend 到 `claude-code` 和 `opencode`，README 已更新 `/oc` 和 OpenCode 使用说明。已验证 `npm run typecheck`、focused T27 fake checks（`/cc`/`/oc` 互切、普通消息进入当前后端、`/state` 后端标签、per-backend knownProjects key、OpenCode 选择下 `/stop` 调用 opencode session）、OpenCode default environment 配置 schema 检查、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/oc ." "hello opencode" "/close"` 和 `npm run build` 通过。
 
-## T28 [TODO] 第二阶段实现 `/dl <path>` 本地文件发送
+## T28 [DONE] 第二阶段实现 `/dl <path>` 本地文件发送
 
 阶段：第二阶段，文件发送。
 
@@ -449,6 +449,8 @@
 实现细节：通过钉钉上传媒体或文件接口上传，再发送文件消息到当前私聊；如果钉钉文件接口需要 access token，则实现 token 获取和缓存；记录审计日志，包含 senderId、文件 realpath、大小、时间、发送结果；不要在错误回复中泄露不必要的完整路径，可只显示 basename。
 
 验收：`/dl README.md` 能发送当前项目文件；不在白名单内的文件被拒绝；超大文件被拒绝；软链指向白名单外时被拒绝；发送失败有明确用户提示。
+
+完成记录：2026-07-06 完成 `/dl <path>` 本地文件发送：配置新增 `security.downloadAllowedDirs` 和 `security.maxDownloadFileBytes`，未显式配置下载目录时默认复用 `allowedRootDirs`，配置加载会对两类目录分别 `realpath` 归一化；`PathPolicy` 新增普通文件 realpath 校验，`FileService` 支持绝对路径、`~`、以及基于当前环境 `cwd` 的相对路径，拒绝目录、非普通文件、白名单外路径、软链逃逸和超限文件，用户错误回复只显示 basename，并记录包含 senderId、realpath、sizeBytes、time、result 的审计日志。`/dl` 已加入 slash command 解析、命令处理和 fake runtime；`ReplySink` 新增 file 发送能力，fake sink 记录 file 回复；DingTalk reply sink 新增 access token 获取与缓存、媒体上传和 file 消息发送，上传或发送失败会转为明确用户提示。README 和配置样例已更新。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/dl README.md"`、临时 allowlist 下允许文件发送、白名单外文件拒绝、软链指向白名单外拒绝、超大文件拒绝、目录拒绝，以及模拟 reply sink 发送失败时返回 `文件发送失败：README.md。请稍后重试或查看服务日志。`。
 
 ## T29 [TODO] 第二阶段实现用户附件输入
 
