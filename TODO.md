@@ -68,7 +68,7 @@
 
 完成记录：2026-07-06 实现 `src/utils/path.ts` 和 `src/security/PathPolicy.ts`，统一支持 `~` 展开、相对路径解析、目录 `realpath`、规范化包含关系判断、目录白名单校验，以及不存在、非目录、不在白名单内的明确错误；`loadConfig` 现在支持配置文件路径 `~` 展开，会将 `security.allowedRootDirs` 和 `defaultEnvironment.cwd` 规范化为真实路径，并拒绝不在白名单内的默认目录。已验证 `npm run typecheck`、`npm run build`、`~` 展开、配置文件路径 `~` 展开、相对路径解析、合法目录通过、不在白名单内目录拒绝、缺失目录拒绝、非目录拒绝、软链逃逸拒绝。
 
-## T05 [TODO] 实现本地状态存储 StateStore
+## T05 [DONE] 实现本地状态存储 StateStore
 
 阶段：第一阶段，状态基础。
 
@@ -81,6 +81,8 @@
 实现细节：写入状态必须使用临时文件加 rename 的原子写入模式；状态文件不存在时创建默认状态；状态 JSON 损坏时备份为 `.agent-dingtalk-state.json.bak.<timestamp>`，然后创建默认状态并记录 warn 日志。
 
 验收：状态能读写；进程重启后能恢复 `activeProject` 和 `knownProjects`；损坏状态文件不会导致服务直接崩溃；运行状态总是在启动时恢复为 `idle`。
+
+完成记录：2026-07-06 实现 `src/state/types.ts`、`src/state/StateStore.ts` 和 `src/state/index.ts`，定义 `RuntimeStatus`、`AppState`、默认 session、已知项目和运行任务状态；`StateStore` 默认使用项目根目录 `.agent-dingtalk-state.json`，支持缺失状态文件自动创建、临时文件加 rename 原子写入、损坏或结构无效状态文件备份为 `.agent-dingtalk-state.json.bak.<timestamp>` 后重建默认状态并输出 warn；启动加载会保留 `activeProject`、`defaultSession` 和 `knownProjects`，同时强制恢复 `runtime.status = "idle"` 且 `currentTask = null` 并持久化。`startApp()` 已接入启动状态加载。已验证 `npm run typecheck`、`npm run build`，以及缺失状态创建、状态读写、重启恢复项目/session、运行状态恢复为 idle、损坏 JSON 备份并重建默认状态、原子写入临时文件清理场景。
 
 ## T06 [TODO] 增加日志工具和错误类型
 
