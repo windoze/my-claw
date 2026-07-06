@@ -47,7 +47,11 @@
   },
   "output": {
     "mode": "markdown",
-    "maxMessageChars": 18000
+    "maxMessageChars": 18000,
+    // Periodically flush new Agent output while a task runs, instead of only replying at the end.
+    // Value is the minimum interval in milliseconds between progress replies (default 60000 = 1 min).
+    // Set to 0 to disable and reply only once the task finishes.
+    "progressIntervalMs": 60000
   },
   "streaming": {
     // Keep "markdown" unless you have created and published a DingTalk AI Card template.

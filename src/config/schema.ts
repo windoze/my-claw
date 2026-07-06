@@ -8,6 +8,7 @@ import {
   DEFAULT_ATTACHMENT_TEMP_DIR,
   DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
   DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+  DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS,
   DEFAULT_STREAMING_CONTENT_KEY,
   DEFAULT_STREAMING_UPDATE_THROTTLE_MS,
 } from "./types.js";
@@ -102,6 +103,11 @@ export const outputConfigSchema = z
   .object({
     mode: outputModeSchema,
     maxMessageChars: z.number().int().positive().default(18000),
+    progressIntervalMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS),
   })
   .strict();
 

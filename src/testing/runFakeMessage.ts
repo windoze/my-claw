@@ -37,6 +37,8 @@ import { FakeReplySink, type FakeReplyCall } from "./FakeReplySink.js";
 const DEFAULT_FAKE_MESSAGES = ["/state", "/cc .", "hello fake backend", "/close"];
 const DEFAULT_SENDER_ID = "fake-user";
 const DEFAULT_OUTPUT_MAX_MESSAGE_CHARS = 18_000;
+// Fake runs collect all events before rendering, matching the pre-progress behavior.
+const DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS = 0;
 const FAKE_STATE_FILE_NAME = ".agent-dingtalk-state.fake.json";
 
 /** Options used to create a reusable fake-message runtime. */
@@ -209,6 +211,7 @@ export async function renderFakeBackendEvents(
     config: {
       mode: "markdown",
       maxMessageChars: DEFAULT_OUTPUT_MAX_MESSAGE_CHARS,
+      progressIntervalMs: DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS,
     },
   });
   await renderer.render(events, replySink);
@@ -249,6 +252,7 @@ function createFakeConfig(
     output: {
       mode: "markdown",
       maxMessageChars: DEFAULT_OUTPUT_MAX_MESSAGE_CHARS,
+      progressIntervalMs: DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS,
     },
     streaming: {
       mode: "markdown",

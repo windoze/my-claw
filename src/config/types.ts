@@ -28,6 +28,9 @@ export type StreamingFallbackMode = "markdown";
 /** Default minimum interval between card content updates. */
 export const DEFAULT_STREAMING_UPDATE_THROTTLE_MS = 800;
 
+/** Default interval between periodic progress replies in Markdown mode (1 minute). */
+export const DEFAULT_OUTPUT_PROGRESS_INTERVAL_MS = 60_000;
+
 /** Default AI Card template variable that receives generated Markdown content. */
 export const DEFAULT_STREAMING_CONTENT_KEY = "content";
 
@@ -96,6 +99,7 @@ export interface ClaudeCodeConfig {
 export interface OutputConfig {
   mode: OutputMode;
   maxMessageChars: number;
+  progressIntervalMs: number;
 }
 
 /** DingTalk card/AI Card streaming behavior. */

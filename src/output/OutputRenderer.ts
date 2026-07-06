@@ -4,7 +4,11 @@ import type { AgentEvent } from "../backend/types.js";
 import type { OutputConfig, StreamingConfig } from "../config/types.js";
 import { createLogger, type Logger } from "../utils/logger.js";
 import { CardStreamingRenderer } from "./CardStreamingRenderer.js";
-import { EMPTY_OUTPUT_MESSAGE, renderAgentEventMessages } from "./renderAgentEvents.js";
+import {
+  AgentEventTextAccumulator,
+  EMPTY_OUTPUT_MESSAGE,
+  renderAgentEventMessages,
+} from "./renderAgentEvents.js";
 import { splitMarkdown } from "./splitMarkdown.js";
 import type { OutputRenderContext, ReplySink } from "./types.js";
 
@@ -13,6 +17,7 @@ export interface OutputRendererOptions {
   config: OutputConfig;
   streaming?: StreamingConfig;
   logger?: Logger;
+  now?: () => number;
 }
 
 /** Converts backend-neutral Agent events to Markdown replies. */
@@ -20,12 +25,14 @@ export class OutputRenderer {
   private readonly config: OutputConfig;
   private readonly streamingConfig: StreamingConfig | undefined;
   private readonly logger: Logger;
+  private readonly now: () => number;
   private readonly cardRenderer: CardStreamingRenderer | undefined;
 
   public constructor(options: OutputRendererOptions) {
     this.config = options.config;
     this.streamingConfig = options.streaming;
     this.logger = options.logger ?? createLogger("output");
+    this.now = options.now ?? Date.now;
     this.cardRenderer =
       this.streamingConfig?.mode === "ai-card"
         ? new CardStreamingRenderer({
@@ -70,9 +77,86 @@ export class OutputRenderer {
       });
     }
 
+    if (this.config.progressIntervalMs > 0) {
+      return this.renderStreamWithProgress(events, replySink);
+    }
+
     const collectedEvents = await collectAgentEvents(events);
     await this.render(collectedEvents, replySink, context);
     return collectedEvents;
+  }
+
+  /**
+   * Consumes the event stream while periodically flushing newly produced text so the
+   * user sees intermediate progress instead of only the final reply. Each flush sends
+   * only the text produced since the previous flush; intervals with no new text send
+   * nothing, and any remaining text is flushed once the stream completes.
+   */
+  private async renderStreamWithProgress(
+    events: AsyncIterable<AgentEvent>,
+    replySink: ReplySink,
+  ): Promise<AgentEvent[]> {
+    const collectedEvents: AgentEvent[] = [];
+    const accumulator = new AgentEventTextAccumulator();
+    let flushedLength = 0;
+    let lastFlushAt = this.now();
+
+    for await (const event of events) {
+      collectedEvents.push(event);
+      accumulator.append(event, this.logger);
+
+      if (
+        accumulator.status === "running" &&
+        this.now() - lastFlushAt >= this.config.progressIntervalMs
+      ) {
+        flushedLength = await this.flushProgress(accumulator, flushedLength, replySink);
+        lastFlushAt = this.now();
+      }
+    }
+
+    await this.flushFinal(accumulator, flushedLength, replySink);
+    return collectedEvents;
+  }
+
+  /** Sends the text produced since the last flush and returns the new flushed length. */
+  private async flushProgress(
+    accumulator: AgentEventTextAccumulator,
+    flushedLength: number,
+    replySink: ReplySink,
+  ): Promise<number> {
+    const full = accumulator.toMarkdown();
+    const delta = full.slice(flushedLength).trim();
+
+    if (delta.length === 0) {
+      return flushedLength;
+    }
+
+    for (const chunk of splitMarkdown(delta, this.config.maxMessageChars)) {
+      await this.sendMarkdown(chunk, replySink);
+    }
+
+    return full.length;
+  }
+
+  /** Flushes any remaining text after the stream ends, using empty-output text when needed. */
+  private async flushFinal(
+    accumulator: AgentEventTextAccumulator,
+    flushedLength: number,
+    replySink: ReplySink,
+  ): Promise<void> {
+    const full = accumulator.toMarkdown();
+    const remainder = full.slice(flushedLength).trim();
+
+    if (remainder.length === 0) {
+      if (flushedLength === 0) {
+        await this.sendMarkdown(EMPTY_OUTPUT_MESSAGE, replySink);
+      }
+      return;
+    }
+
+    for (const chunk of splitMarkdown(remainder, this.config.maxMessageChars)) {
+      await this.sendMarkdown(chunk, replySink);
+    }
   }
 
   /** Converts an event list into user-visible Markdown message bodies. */
