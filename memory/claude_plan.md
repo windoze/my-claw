@@ -9,23 +9,21 @@ I will keep this file as a concise progress log and execution plan. I cannot rec
 5. Update `TODO.md` with `[DONE]` and a completion record if the task is complete; update `PLAN.md` only if phase-level sequencing changes.
 6. Commit all resulting changes with a descriptive message and stop without starting the next task.
 
-Status: selected first incomplete task `T23 [TODO] 增加消息去重和 Stream 重连处理`.
+Status: selected first incomplete task `T24 [TODO] 完成第一阶段 README 和运行说明`.
 
 Task-specific plan:
 
-1. Inspect `src/dingtalk/DingTalkAdapter.ts`, existing DingTalk types, app startup wiring, and package scripts.
-2. Add a `MessageDeduper` that tracks processed message keys for a 5-minute TTL, prunes old entries, ignores duplicates, and creates a warn-logged weak key when `message.id` is missing.
-3. Wire deduplication into the DingTalk callback path before security, command routing, and backend execution.
-4. Add connection-state/error/reconnect logging around the DingTalk Stream client using available SDK hooks or documented fallback behavior without bypassing the SDK lifecycle.
-5. Validate with formatting/typecheck/build and focused local checks for duplicate handling, weak-key handling, and connection logging.
-6. Mark T23 `[DONE]` with a completion record, then commit all changes.
+1. Read the T24 task body in `TODO.md` and confirm no later task should be started.
+2. Inspect `package.json`, `agent-dingtalk.config.example.jsonc`, `.gitignore`, and the relevant app/DingTalk/security/command source files needed to keep the documentation accurate.
+3. Add a root `README.md` covering the DingTalk Stream Mode setup summary, config copy/edit steps, `allowedUserIds` discovery, run commands, supported first-stage slash commands, unsupported second-stage features, private/single-user scope, and local file-operation safety.
+4. Mark T24 `[DONE]` in `TODO.md` with a completion record.
+5. Skip code compilation/testing because this task only changes documentation/bookkeeping and the documented scripts were checked directly against `package.json`.
+6. Commit all T24 changes and stop.
 
 Progress:
 
-- Added the `MessageDeduper` design and wired it into the DingTalk callback path before handler execution.
-- Updated internal message/input contracts so a missing DingTalk message ID can be represented and handled with a weak dedupe key.
-- Added Stream SDK lifecycle/connection logging around public event hooks, SDK debug status messages, system frames, and startup connection failures.
-- Moved Stream lifecycle logging helpers into `src/dingtalk/StreamLifecycleLogger.ts` to keep `DingTalkAdapter` focused.
-- Validation completed with `npm run typecheck`, `npm run build`, focused T23 behavior checks including a post-close/reconnect callback path, `git diff --check`, and `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`.
-- `TODO.md` now marks T23 `[DONE]` with a completion record.
-- Next step: inspect git diff and commit the T23 changes.
+- Confirmed T24 is the first incomplete task after T23 `[DONE]`.
+- Added root `README.md` with setup, configuration, run commands, DingTalk commands, limitations, and safety notes.
+- `TODO.md` now marks T24 `[DONE]` with a completion record.
+- No `PLAN.md` update is needed because phase-level sequencing did not change.
+- `git diff --check` passed. No code compilation or test run was needed because only documentation/bookkeeping files changed.

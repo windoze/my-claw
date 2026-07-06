@@ -372,7 +372,7 @@
 
 完成记录：2026-07-06 新增 `src/dingtalk/MessageDeduper.ts`，按 message ID 维护 5 分钟 TTL 的已处理集合，支持定期清理、重复消息忽略，以及在缺少 message ID 时按 senderId、文本、会话类型和时间窗口生成弱 key 并记录 warn；`DingTalkAdapter` 现在在进入安全校验、命令和 Agent 前执行去重，同一 message ID 或同一弱 key 的重复投递不会重复触发 handler。Stream 侧增加连接状态、SDK 自动重连、socket close/reconnect 调度、系统 disconnect/registered/keepalive 和连接失败分类日志，连接失败日志会给出凭证、网络、Stream endpoint 或服务端问题的可操作原因。已验证 `npm run typecheck`、`npm run build`、focused T23 checks（TTL 去重、过期恢复、缺失 ID 弱 key、adapter 重复忽略、Stream close/reconnect 日志、凭证类连接失败日志、close 后回调仍可处理）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 通过。
 
-## T24 [TODO] 完成第一阶段 README 和运行说明
+## T24 [DONE] 完成第一阶段 README 和运行说明
 
 阶段：第一阶段，文档。
 
@@ -385,6 +385,8 @@
 实现细节：文档必须强调配置文件和状态文件不应提交；说明只支持私聊和单用户；说明本地 Agent 可能操作文件，应谨慎配置 `allowedRootDirs` 和 Claude 权限。
 
 验收：按 README 从空配置开始能完成本地启动；文档中的命令与实际 `package.json` 脚本一致。
+
+完成记录：2026-07-06 新增根目录 `README.md`，覆盖项目概览、第一阶段能力边界、钉钉测试组织/企业内部应用/机器人/Stream Mode 准备步骤、配置样例复制和 `AGENT_DINGTALK_CONFIG` 覆盖、`allowedUserIds` 通过首次脱敏 debug 样本确认、实际 `package.json` 脚本对应的运行命令、私聊支持命令 `/cc`、`/close`、`/state`、`/stop`、`/oc` 占位，以及 OpenCode、`/dl`、附件输入和卡片/AI Card 流式输出尚未支持的说明；文档强调真实配置文件和状态文件不得提交、第一阶段只支持私聊和单用户、本机 Agent 可能操作文件且需谨慎配置 `allowedRootDirs` 和 Claude 权限。未改动运行代码，未重新执行编译或测试；README 中命令已按 `package.json` 与配置样例核对。
 
 ## T25 [TODO] 执行第一阶段端到端验收和修复
 
