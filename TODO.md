@@ -100,7 +100,7 @@
 
 完成记录：2026-07-06 实现 `src/utils/logger.ts` 和 `src/utils/errors.ts`，提供带时间、级别、scope、消息的 `createLogger(scope)`，支持 `debug`、`info`、`warn`、`error`，默认对 `clientSecret`、token、Authorization、密码、API key 和完整环境变量对象做脱敏；新增 `AppError` 和 `UserFacingError`，并让现有配置、路径、白名单和状态存储错误继承可分类错误基类；`src/index.ts` 顶层启动异常改为通过 scoped logger 输出，`src/app.ts` 和 `StateStore` 不再直接使用 console 输出。已验证 `npm run typecheck`、`npm run build`、logger 时间/级别/scope/消息格式、敏感字段脱敏和 `UserFacingError.safeMessage`。
 
-## T07 [TODO] 定义统一消息、回复和 Agent 环境类型
+## T07 [DONE] 定义统一消息、回复和 Agent 环境类型
 
 阶段：第一阶段，接口基础。
 
@@ -113,6 +113,8 @@
 实现细节：定义 `AgentInput`，第一阶段只包含 `text` 和 `messageId`；定义 `AgentEvent` 最小集：`text`、`done`、`error`、`stopped`；保留 `tool_start`、`tool_finish` 类型但第一阶段可只记录日志。
 
 验收：各类型文件不导入具体实现类；后续所有模块都使用这些公共类型通信。
+
+完成记录：2026-07-06 新增 `src/messages/types.ts`、`src/output/types.ts`、`src/session/types.ts` 和 `src/backend/types.ts`，定义统一 `IncomingMessage`、`ReplySink`、`AgentEnvironment`、`AgentInput`、`AgentEvent` 及保留的 `tool_start`/`tool_finish` 事件类型；类型文件仅依赖公共类型，不导入具体实现类，为后续钉钉适配器、命令路由、SessionManager、输出渲染和后端适配器提供共享通信契约。已验证 `npm run typecheck` 和 `npm run build` 通过。
 
 ## T08 [TODO] 实现 slash command 解析器
 

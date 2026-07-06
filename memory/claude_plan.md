@@ -1,20 +1,16 @@
-## Current invocation plan
+# Current invocation plan
 
 I will work from `TODO.md` as the source of truth, complete exactly the first task whose heading is not prefixed with `[DONE]`, update the task record, commit the result, and stop.
 
-### Selected task
+## Selected task
 
-`T06 [TODO] 增加日志工具和错误类型`
+`T07 [DONE] 定义统一消息、回复和 Agent 环境类型`
 
-### Implementation approach
+## Implementation approach
 
-Add `src/utils/logger.ts` and `src/utils/errors.ts`, export them from `src/utils/index.ts`, route startup and app logs through scoped loggers, and replace the existing StateStore fallback console warning with the shared logger surface. Existing config, path, policy, and state errors will be made compatible with the new `AppError` base where practical so callers can classify failures consistently.
+Define the shared internal contracts in `src/messages/types.ts`, `src/output/types.ts`, `src/session/types.ts`, and `src/backend/types.ts` without importing concrete implementation classes. Reuse existing configuration types where appropriate, keep backend support constrained to first-stage `"claude-code"`, and ensure event/input/reply structures match the TODO requirements.
 
-### Progress
-
-Implemented and validated T06. `TODO.md` has been updated with `[DONE]` and a completion record. Next step is committing the task changes only, then stopping.
-
-### Execution steps
+## Execution steps
 
 1. Read `TODO.md` to identify the first incomplete task and its requirements, dependencies, and validation instructions.
 2. Check the latest commit message only for directly relevant unfinished work tied to that selected task.
@@ -26,3 +22,7 @@ Implemented and validated T06. `TODO.md` has been updated with `[DONE]` and a co
 8. Update this plan file at key milestones.
 9. Commit all task-related changes with a descriptive message and the required co-author trailer.
 10. Stop without starting the next task.
+
+## Progress
+
+Identified T07 as the first incomplete task. The latest commit only completed T06 and did not mention relevant unfinished work. Added implementation-free shared contracts for incoming messages, reply sinks, Agent environments, Agent input, and Agent events. `npm run typecheck` and `npm run build` passed. `TODO.md` now marks T07 `[DONE]` with a completion record. Next I will commit these changes and stop.
