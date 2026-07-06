@@ -50,6 +50,7 @@ export interface SessionCommandHandlersOptions {
 
 const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/oc";
 const CC_USAGE = '用法：/cc <dir>。如果路径包含空格，请使用引号，例如：/cc "/Users/me/My Repo"。';
+const OC_USAGE = '用法：/oc <dir>。如果路径包含空格，请使用引号，例如：/oc "/Users/me/My Repo"。';
 
 /** Creates the first-stage handler set used by CommandRouter by default. */
 export function createDefaultCommandHandlers(): CommandHandlers {
@@ -74,7 +75,7 @@ export function createSessionCommandHandlers(
     state: (context) => handleStateCommand(context, options.sessionManager),
     stop: (context) =>
       handleStopCommand(context, options.sessionManager, options.stopCurrentTask),
-    oc: handleOpenCodePlaceholder,
+    oc: (context) => handleOpenCodeProjectCommand(context, options.sessionManager),
     invalid: handleInvalidCommand,
     unknown: handleUnknownCommand,
   };
@@ -96,11 +97,13 @@ export async function handleStatePlaceholder({
   await replySink.sendMarkdown("### 当前状态\n\n状态查询需要先接入 SessionManager。");
 }
 
-/** Handles `/oc` while OpenCode support is intentionally deferred to phase two. */
+/** Handles `/oc` until a SessionManager is supplied to CommandRouter. */
 export async function handleOpenCodePlaceholder({
   replySink,
 }: CommandHandlerContext<KnownCommandParseResult>): Promise<void> {
-  await replySink.sendText("OpenCode 尚未启用，将在第二阶段支持。");
+  await replySink.sendText(
+    "命令 /oc 已识别，但当前 CommandRouter 尚未接入 SessionManager。",
+  );
 }
 
 /** Acknowledges commands whose real behavior requires a supplied SessionManager. */
@@ -119,7 +122,7 @@ export async function handleClaudeProjectCommand(
   sessionManager: SessionManager,
 ): Promise<void> {
   await sessionManager.assertCanAcceptCommand("cc");
-  const dir = readSingleDirectoryArgument(command);
+  const dir = readSingleDirectoryArgument(command, CC_USAGE);
 
   if (dir === null) {
     await replySink.sendText(CC_USAGE);
@@ -128,6 +131,23 @@ export async function handleClaudeProjectCommand(
 
   const result = await sessionManager.openClaudeProject(dir);
   await replySink.sendText(`已切换到 Claude Code 项目：${result.environment.cwd}`);
+}
+
+/** Handles `/oc <dir>` by opening an allowlisted OpenCode project directory. */
+export async function handleOpenCodeProjectCommand(
+  { command, replySink }: CommandHandlerContext<KnownCommandParseResult>,
+  sessionManager: SessionManager,
+): Promise<void> {
+  await sessionManager.assertCanAcceptCommand("oc");
+  const dir = readSingleDirectoryArgument(command, OC_USAGE);
+
+  if (dir === null) {
+    await replySink.sendText(OC_USAGE);
+    return;
+  }
+
+  const result = await sessionManager.openOpenCodeProject(dir);
+  await replySink.sendText(`已切换到 OpenCode 项目：${result.environment.cwd}`);
 }
 
 /** Handles `/close` by returning command routing to the configured default environment. */
@@ -186,14 +206,17 @@ export async function handleUnknownCommand({
   await replySink.sendText(`不支持的命令：${displayName}。当前支持：${SUPPORTED_COMMANDS}。`);
 }
 
-/** Reads the single directory argument expected by `/cc` and reports ambiguous usage. */
-function readSingleDirectoryArgument(command: KnownCommandParseResult): string | null {
+/** Reads the single directory argument expected by project-switching commands. */
+function readSingleDirectoryArgument(
+  command: KnownCommandParseResult,
+  usage: string,
+): string | null {
   if (command.args.length === 0) {
     return null;
   }
 
   if (command.args.length > 1) {
-    throw new UserFacingError("COMMAND_USAGE_INVALID", CC_USAGE);
+    throw new UserFacingError("COMMAND_USAGE_INVALID", usage);
   }
 
   return command.args[0] ?? null;

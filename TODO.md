@@ -420,7 +420,7 @@
 
 完成记录：2026-07-06 安装 `@opencode-ai/sdk`，新增 `src/backend/opencode/`，实现 `OpenCodeAdapter`、OpenCode session metadata、集中式 `mapOpenCodeEvent` 映射和 `npm run opencode:prompt` 本地 smoke 脚本；adapter 懒启动并复用 process-local OpenCode server，按 `cwd` 维护 client/session 上下文，`send` 使用 `event.subscribe()` + `session.promptAsync()`，只将 assistant `message.part.updated` 文本 delta 映射为 `AgentEvent.text`，将 `session.idle` 映射为 `done`，将 `session.error`/SDK 错误映射为安全错误；`stop` 调用 OpenCode `session.abort`，`dispose` 关闭本进程创建的 server 且不删除用户会话数据。`BackendRegistry` 和 `startApp()` 已注册 OpenCode adapter，但 `/oc` 项目切换仍按后续 T27 实现。已验证 `npm run typecheck`、`npm run build`、focused fake OpenCodeAdapter 检查（事件映射、忽略用户 text part、session 复用、stop->abort、server 单次关闭）、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 和 `npm run opencode:prompt -- --cwd . --server-timeout-ms 30000 "请只回复：OK"` 通过；真实 smoke 确认 OpenCode 可在当前 `cwd` 返回 `OK`，且默认 Claude Code/fake 路由未受影响。
 
-## T27 [TODO] 第二阶段实现 `/oc <dir>` 项目切换
+## T27 [DONE] 第二阶段实现 `/oc <dir>` 项目切换
 
 阶段：第二阶段，OpenCode 命令。
 
@@ -433,6 +433,8 @@
 实现细节：`/state` 显示当前后端为 `OpenCode` 或 `Claude Code`；`/close` 对两种后端都回默认环境；`/stop` 根据当前后端调用对应 adapter。
 
 验收：`/cc <dir>` 和 `/oc <dir>` 可以互相切换；普通消息进入当前后端；`/state` 显示正确后端；`/stop` 对 OpenCode 生效。
+
+完成记录：2026-07-06 完成 `/oc <dir>` OpenCode 项目切换：配置和状态校验已允许 `opencode`，`SessionManager` 现在按显式 backend 打开 Claude Code 或 OpenCode 项目，`/oc` 复用 `/cc` 的路径展开、`realpath` 和 `allowedRootDirs` 校验，并在非 idle 状态下沿用项目切换拒绝规则；`activeProject.backend` 会保存为 `opencode`，`knownProjects` 改用 `backend:cwd` 结构化 key 并兼容旧 cwd-only Claude Code 状态，避免同目录下 Claude Code/OpenCode session 混淆；`/state` 以 `Claude Code`/`OpenCode` 展示当前、默认、运行任务和已知项目后端；`/close` 对两种后端回默认环境，普通消息和 `/stop` 通过当前环境的 `BackendRegistry` adapter 执行。fake runtime 已注册同一个 fake backend 到 `claude-code` 和 `opencode`，README 已更新 `/oc` 和 OpenCode 使用说明。已验证 `npm run typecheck`、focused T27 fake checks（`/cc`/`/oc` 互切、普通消息进入当前后端、`/state` 后端标签、per-backend knownProjects key、OpenCode 选择下 `/stop` 调用 opencode session）、OpenCode default environment 配置 schema 检查、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/oc ." "hello opencode" "/close"` 和 `npm run build` 通过。
 
 ## T28 [TODO] 第二阶段实现 `/dl <path>` 本地文件发送
 

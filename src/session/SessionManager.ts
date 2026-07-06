@@ -1,6 +1,6 @@
 /** Coordinates Agent environment selection, project state, and runtime concurrency rules. */
 
-import type { AppConfig, AgentEnvironmentConfig } from "../config/types.js";
+import type { AgentBackend, AppConfig, AgentEnvironmentConfig } from "../config/types.js";
 import type { BackendSession } from "../backend/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { StateStore } from "../state/StateStore.js";
@@ -20,7 +20,7 @@ const PROJECT_BUSY_MESSAGE =
 const PROJECT_STOPPING_MESSAGE = "当前任务正在中断，暂时不能切换项目。";
 
 /** Commands whose availability is decided by the session state machine. */
-export type StatefulCommandName = "cc" | "close" | "state" | "stop";
+export type StatefulCommandName = "cc" | "oc" | "close" | "state" | "stop";
 
 /** User-safe session manager error categories. */
 export type SessionManagerErrorCode =
@@ -58,7 +58,7 @@ export interface CreateSessionManagerOptions extends Omit<SessionManagerOptions,
   pathPolicy?: PathPolicy;
 }
 
-/** Result returned after opening a Claude Code project directory. */
+/** Result returned after opening a project directory for a specific backend. */
 export interface OpenProjectResult {
   environment: AgentEnvironment;
   state: AppState;
@@ -179,6 +179,16 @@ export class SessionManager {
 
   /** Opens a Claude Code project directory after enforcing idle status and path allowlisting. */
   public async openClaudeProject(dir: string): Promise<OpenProjectResult> {
+    return this.openProject(dir, "claude-code");
+  }
+
+  /** Opens an OpenCode project directory after enforcing idle status and path allowlisting. */
+  public async openOpenCodeProject(dir: string): Promise<OpenProjectResult> {
+    return this.openProject(dir, "opencode");
+  }
+
+  /** Opens a project directory for the requested backend and persists per-backend metadata. */
+  private async openProject(dir: string, backend: AgentBackend): Promise<OpenProjectResult> {
     const existingState = await this.stateStore.read();
     assertProjectMutationAllowed(existingState.runtime.status);
 
@@ -186,14 +196,11 @@ export class SessionManager {
     const state = await this.stateStore.update((currentState) => {
       assertProjectMutationAllowed(currentState.runtime.status);
 
-      const knownProject = this.buildKnownProject(realDir, currentState);
+      const knownProject = this.buildKnownProject(realDir, backend, currentState);
       return {
         ...currentState,
         activeProject: toActiveProjectState(knownProject),
-        knownProjects: {
-          ...currentState.knownProjects,
-          [realDir]: knownProject,
-        },
+        knownProjects: setKnownProject(currentState.knownProjects, knownProject),
       };
     });
 
@@ -437,7 +444,7 @@ export class SessionManager {
         };
       }
 
-      const existingProject = currentState.knownProjects[environment.cwd];
+      const existingProject = getKnownProject(currentState, environment);
       const knownProject: KnownProjectState = {
         backend: environment.backend,
         cwd: environment.cwd,
@@ -448,13 +455,10 @@ export class SessionManager {
 
       return {
         ...currentState,
-        knownProjects: {
-          ...currentState.knownProjects,
-          [environment.cwd]: {
-            ...existingProject,
-            ...knownProject,
-          },
-        },
+        knownProjects: setKnownProject(currentState.knownProjects, {
+          ...existingProject,
+          ...knownProject,
+        }),
       };
     });
   }
@@ -462,7 +466,7 @@ export class SessionManager {
   /** Builds the currently selected execution environment from persisted state. */
   private buildCurrentEnvironment(state: AppState): AgentEnvironment {
     if (state.activeProject !== null) {
-      const knownProject = state.knownProjects[state.activeProject.cwd];
+      const knownProject = getKnownProject(state, state.activeProject);
       return toAgentEnvironment(
         "project",
         state.activeProject,
@@ -478,24 +482,45 @@ export class SessionManager {
   }
 
   /** Builds a new or existing known project record for an allowlisted real directory. */
-  private buildKnownProject(realDir: string, state: AppState): KnownProjectState {
-    const existingProject = state.knownProjects[realDir];
+  private buildKnownProject(
+    realDir: string,
+    backend: AgentBackend,
+    state: AppState,
+  ): KnownProjectState {
+    const existingProject = getKnownProject(state, { backend, cwd: realDir });
 
     if (existingProject !== undefined) {
       return existingProject;
     }
 
+    const inheritedEnvironment = this.findConfiguredEnvironment(realDir, backend);
     return {
-      backend: this.config.defaultEnvironment.backend,
+      backend,
       cwd: realDir,
-      ...(this.config.defaultEnvironment.agent
-        ? { agent: this.config.defaultEnvironment.agent }
-        : {}),
-      ...(this.config.defaultEnvironment.model
-        ? { model: this.config.defaultEnvironment.model }
-        : {}),
+      ...(inheritedEnvironment?.agent ? { agent: inheritedEnvironment.agent } : {}),
+      ...(inheritedEnvironment?.model ? { model: inheritedEnvironment.model } : {}),
       sessionId: null,
     };
+  }
+
+  /** Finds backend-compatible configured settings that can be inherited by slash-opened projects. */
+  private findConfiguredEnvironment(
+    realDir: string,
+    backend: AgentBackend,
+  ): AgentEnvironmentConfig | undefined {
+    const configuredProject = this.config.projects?.find(
+      (project) => project.backend === backend && project.cwd === realDir,
+    );
+
+    if (configuredProject !== undefined) {
+      return configuredProject;
+    }
+
+    if (this.config.defaultEnvironment.backend === backend) {
+      return this.config.defaultEnvironment;
+    }
+
+    return undefined;
   }
 
   /** Builds a sanitized state snapshot from config and persisted state. */
@@ -520,9 +545,12 @@ export class SessionManager {
         state.activeProject === null
           ? null
           : summarizeProjectEnvironment(state.activeProject, state.knownProjects),
-      knownProjects: Object.values(state.knownProjects)
+      knownProjects: getUniqueKnownProjects(state.knownProjects)
         .map((project) => summarizeKnownProject(project))
-        .sort((left, right) => left.cwd.localeCompare(right.cwd)),
+        .sort((left, right) => {
+          const cwdOrder = left.cwd.localeCompare(right.cwd);
+          return cwdOrder === 0 ? left.backend.localeCompare(right.backend) : cwdOrder;
+        }),
       canAcceptNormalMessage: state.runtime.status === "idle",
     };
   }
@@ -537,6 +565,75 @@ function assertProjectMutationAllowed(status: RuntimeStatus): void {
   if (status === "stopping") {
     throw new SessionManagerError("SESSION_PROJECT_STOPPING", PROJECT_STOPPING_MESSAGE);
   }
+}
+
+/** Opaque record key that keeps sessions distinct for the same directory across backends. */
+function getKnownProjectKey(project: Pick<AgentEnvironmentConfig, "backend" | "cwd">): string {
+  return `${project.backend}:${project.cwd}`;
+}
+
+/** Returns a known project using the per-backend key, with legacy cwd-key fallback for old state. */
+function getKnownProject(
+  state: AppState,
+  project: Pick<AgentEnvironmentConfig, "backend" | "cwd">,
+): KnownProjectState | undefined {
+  return getKnownProjectFromRecord(state.knownProjects, project);
+}
+
+/** Looks up retained project metadata in a known-project record. */
+function getKnownProjectFromRecord(
+  knownProjects: AppState["knownProjects"],
+  project: Pick<AgentEnvironmentConfig, "backend" | "cwd">,
+): KnownProjectState | undefined {
+  const keyedProject = knownProjects[getKnownProjectKey(project)];
+
+  if (keyedProject !== undefined) {
+    return keyedProject;
+  }
+
+  const legacyProject = knownProjects[project.cwd];
+  if (
+    legacyProject !== undefined &&
+    legacyProject.backend === project.backend &&
+    legacyProject.cwd === project.cwd
+  ) {
+    return legacyProject;
+  }
+
+  return undefined;
+}
+
+/** Adds or replaces a known project while removing the matching pre-T27 cwd-only key. */
+function setKnownProject(
+  knownProjects: AppState["knownProjects"],
+  project: KnownProjectState,
+): AppState["knownProjects"] {
+  const nextKnownProjects = {
+    ...knownProjects,
+    [getKnownProjectKey(project)]: project,
+  };
+  const legacyProject = nextKnownProjects[project.cwd];
+
+  if (
+    legacyProject !== undefined &&
+    legacyProject.backend === project.backend &&
+    legacyProject.cwd === project.cwd
+  ) {
+    delete nextKnownProjects[project.cwd];
+  }
+
+  return nextKnownProjects;
+}
+
+/** Deduplicates legacy and per-backend project records before rendering state summaries. */
+function getUniqueKnownProjects(
+  knownProjects: AppState["knownProjects"],
+): readonly KnownProjectState[] {
+  return [
+    ...new Map(
+      Object.values(knownProjects).map((project) => [getKnownProjectKey(project), project]),
+    ).values(),
+  ];
 }
 
 /** Converts a known project record into the active-project state shape. */
@@ -582,11 +679,13 @@ function summarizeProjectEnvironment(
   activeProject: ActiveProjectState,
   knownProjects: AppState["knownProjects"],
 ): SessionEnvironmentSummary {
+  const knownProject = getKnownProjectFromRecord(knownProjects, activeProject);
+
   return summarizeAgentEnvironment(
     toAgentEnvironment(
       "project",
       activeProject,
-      knownProjects[activeProject.cwd]?.sessionId ?? null,
+      knownProject?.sessionId ?? null,
     ),
   );
 }

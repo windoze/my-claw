@@ -1,13 +1,13 @@
 # my-claw
 
-钉钉私聊 Agent 网关。第一阶段把指定钉钉用户的私聊消息转给本机 Claude Code 后端，并把结果以钉钉 Text/Markdown 回复返回。
+钉钉私聊 Agent 网关。把指定钉钉用户的私聊消息转给本机 Claude Code 或 OpenCode 后端，并把结果以钉钉 Text/Markdown 回复返回。
 
 ## 当前阶段能力
 
 - 仅支持钉钉私聊和配置中的单用户白名单；未授权用户和群聊不会触发命令或 Agent。
-- 默认后端为 Claude Code，支持默认工作目录和 `/cc <dir>` 项目目录切换。
+- 默认后端可配置为 Claude Code 或 OpenCode，支持默认工作目录、`/cc <dir>` Claude Code 项目目录切换和 `/oc <dir>` OpenCode 项目目录切换。
 - 支持运行状态持久化、Claude Code session ID 保存/恢复、消息去重、Stream 连接状态日志、`/stop` 中断和长 Markdown 分段。
-- OpenCode、`/dl` 本地文件发送、附件输入、钉钉卡片/AI Card 流式输出仍未支持；`/oc` 目前只是占位提示。
+- `/dl` 本地文件发送、附件输入、钉钉卡片/AI Card 流式输出仍未支持。
 
 ## 准备钉钉 Stream Mode
 
@@ -33,9 +33,11 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 - `dingtalk.clientId`、`dingtalk.clientSecret`、`dingtalk.robotCode`：填入钉钉应用和机器人信息。
 - `dingtalk.allowedUserIds`：只填允许使用该 Agent 的钉钉用户 ID。
 - `dingtalk.rejectGroupMessages`：第一阶段建议保持 `true`。
-- `defaultEnvironment.cwd`：无 active project 时 Claude Code 运行的默认目录。
-- `security.allowedRootDirs`：允许 `/cc` 打开的目录根；所有目录会经过 `realpath` 校验，软链逃逸会被拒绝。
+- `defaultEnvironment.backend`：无 active project 时使用的后端，可为 `claude-code` 或 `opencode`。
+- `defaultEnvironment.cwd`：无 active project 时 Agent 运行的默认目录。
+- `security.allowedRootDirs`：允许 `/cc` 和 `/oc` 打开的目录根；所有目录会经过 `realpath` 校验，软链逃逸会被拒绝。
 - `claudeCode.permissionMode`、`claudeCode.allowedTools`、`claudeCode.maxTurns`：按本机安全边界配置 Claude Code 权限和轮数。
+- OpenCode 使用本机 `opencode` 认证状态；如需指定模型，`model` 使用 OpenCode SDK 的 `provider/model` 或 `provider:model` 格式。
 - `output.maxMessageChars`：单条钉钉 Markdown 回复的最大字符数，超出后会自动分段。
 
 默认配置路径是仓库根目录的 `agent-dingtalk.config.jsonc`。也可以用环境变量指定：
@@ -56,6 +58,7 @@ AGENT_DINGTALK_CONFIG=/absolute/path/to/agent-dingtalk.config.jsonc npm run dev
 | `npm start` | 运行已编译的 `dist/index.js`，需先执行 `npm run build`。 |
 | `npm run fake:message -- "/state" "/cc ." "hello" "/close"` | 不连接钉钉和 Claude Code，用 fake 组件验证命令和本地路由。 |
 | `npm run claude:prompt -- --max-turns 1 --cwd . "请只回复：OK"` | 不连接钉钉，直接 smoke test Claude Code adapter。 |
+| `npm run opencode:prompt -- --cwd . "请只回复：OK"` | 不连接钉钉，直接 smoke test OpenCode adapter。 |
 
 从空配置启动时，先完成 `npm install`、复制并填写配置，再运行：
 
@@ -73,9 +76,9 @@ npm run dev
 | `/cc <dir>` | 切换到允许目录内的 Claude Code 项目；路径包含空格时使用引号，例如 `/cc "/Users/me/My Repo"`。 |
 | `/close` | 关闭当前 active project，回到默认环境，并保留项目 session 记录。 |
 | `/stop` | 当前任务运行中请求中断；空闲时会提示没有任务。 |
-| `/oc <dir>` | 第一阶段占位命令，会回复 OpenCode 将在第二阶段支持。 |
+| `/oc <dir>` | 切换到允许目录内的 OpenCode 项目；路径包含空格时使用引号，例如 `/oc "/Users/me/My Repo"`。 |
 
-非 slash 文本消息会发送给当前环境的 Claude Code。任务运行中会拒绝新的普通消息和项目切换；可以发送 `/state` 查询状态，或发送 `/stop` 请求中断。
+非 slash 文本消息会发送给当前环境的 Claude Code 或 OpenCode。任务运行中会拒绝新的普通消息和项目切换；可以发送 `/state` 查询状态，或发送 `/stop` 请求中断当前后端任务。
 
 ## 安全和运维注意事项
 
@@ -84,3 +87,4 @@ npm run dev
 - 日志会尽量脱敏 `clientSecret`、token、Authorization 等字段，但排查问题前仍应先检查日志内容再分享。
 - 如果钉钉没有回复，优先检查：消息是否为私聊、`allowedUserIds` 是否匹配 debug 样本中的用户 ID、`sessionWebhook` 是否存在/过期、Stream 连接是否成功。
 - 如果 Claude Code 调用失败，检查本机 Claude Code/Agent SDK 认证状态、`cwd` 是否存在并在白名单内、工具权限和 `maxTurns` 设置。
+- 如果 OpenCode 调用失败，检查本机 `opencode` 安装和认证状态，以及 `model` 是否使用 `provider/model` 或 `provider:model` 格式。

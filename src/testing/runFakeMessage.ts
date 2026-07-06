@@ -118,7 +118,10 @@ export async function createFakeMessageRuntime(
   });
   const replySink = options.replySink ?? new FakeReplySink();
   const backend = options.backend ?? new FakeBackendAdapter();
-  const backendRegistry = new BackendRegistry([["claude-code", backend]]);
+  const backendRegistry = new BackendRegistry([
+    ["claude-code", backend],
+    ["opencode", backend],
+  ]);
   const outputRenderer = new OutputRenderer({ config: config.output });
   const commandRouter = new CommandRouter({ sessionManager });
   const securityGate = new SecurityGate({ config: config.dingtalk });

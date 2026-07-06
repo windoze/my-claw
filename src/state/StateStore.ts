@@ -47,7 +47,7 @@ export class StateStoreError extends AppError {
 }
 
 const nonEmptyStringSchema = z.string().min(1);
-const agentBackendSchema = z.literal("claude-code");
+const agentBackendSchema = z.enum(["claude-code", "opencode"]);
 
 const sessionStateSchema = z
   .object({

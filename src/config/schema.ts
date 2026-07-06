@@ -7,8 +7,8 @@ import { CLAUDE_CODE_PERMISSION_MODES } from "./types.js";
 /** Shared non-empty string rule for required configuration text fields. */
 const nonEmptyStringSchema = z.string().min(1, "must not be empty");
 
-/** Runtime backend names accepted in the first phase. */
-const agentBackendSchema = z.literal("claude-code");
+/** Runtime backend names accepted by configured Agent environments. */
+const agentBackendSchema = z.enum(["claude-code", "opencode"]);
 
 /** Output formats accepted by the current DingTalk reply renderer. */
 const outputModeSchema = z.literal("markdown");
