@@ -356,7 +356,7 @@
 
 完成记录：2026-07-06 完成真实 App 启动流程组装：`startApp()` 现在加载配置后创建状态存储、SessionManager、BackendRegistry、ClaudeCodeAdapter、OutputRenderer、CommandRouter、SecurityGate 和真实 DingTalkAdapter，注入统一安全的 `handleIncomingMessage`，启动 DingTalk Stream；消息入口增加集中 try/catch，用户可见错误通过 ReplySink 回复、内部错误写日志，ReplySink 失败不会导致进程退出；运行中任务在 finally 中恢复 idle，进程关闭时会尽力断开 DingTalk Stream 并关闭当前后端任务。`src/index.ts` 已安装 SIGINT/SIGTERM/beforeExit 清理钩子。已验证 `npm run typecheck`、`npm run build`、fake message 路由，以及使用临时配置和 fake DingTalk Stream client 覆盖 `startApp()` 注册回调、连接和 `runtime.close()` 断开流程；真实钉钉私聊需部署有效凭证后按验收项执行。
 
-## T23 [TODO] 增加消息去重和 Stream 重连处理
+## T23 [DONE] 增加消息去重和 Stream 重连处理
 
 阶段：第一阶段，加固。
 
@@ -369,6 +369,8 @@
 实现细节：Stream SDK 如果暴露断线事件，记录并指数退避重连；如果 SDK 自带 `start_forever` 或等价机制，也要记录连接状态；连接失败时错误日志必须包含可操作原因，例如凭证错误或网络错误。
 
 验收：同一 message ID 重复进入不会重复触发 Agent；Stream 断线时有明确日志；重连后仍能处理私聊消息。
+
+完成记录：2026-07-06 新增 `src/dingtalk/MessageDeduper.ts`，按 message ID 维护 5 分钟 TTL 的已处理集合，支持定期清理、重复消息忽略，以及在缺少 message ID 时按 senderId、文本、会话类型和时间窗口生成弱 key 并记录 warn；`DingTalkAdapter` 现在在进入安全校验、命令和 Agent 前执行去重，同一 message ID 或同一弱 key 的重复投递不会重复触发 handler。Stream 侧增加连接状态、SDK 自动重连、socket close/reconnect 调度、系统 disconnect/registered/keepalive 和连接失败分类日志，连接失败日志会给出凭证、网络、Stream endpoint 或服务端问题的可操作原因。已验证 `npm run typecheck`、`npm run build`、focused T23 checks（TTL 去重、过期恢复、缺失 ID 弱 key、adapter 重复忽略、Stream close/reconnect 日志、凭证类连接失败日志、close 后回调仍可处理）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 通过。
 
 ## T24 [TODO] 完成第一阶段 README 和运行说明
 

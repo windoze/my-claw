@@ -5,7 +5,7 @@ export type ConversationType = "private" | "group" | "unknown";
 
 /** Normalized inbound message used by security, commands, and Agent routing. */
 export interface IncomingMessage {
-  id: string;
+  id?: string;
   text: string;
   senderId: string;
   conversationType: ConversationType;

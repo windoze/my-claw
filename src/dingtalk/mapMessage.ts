@@ -68,9 +68,9 @@ export function mapDingTalkRobotMessage(
   const text = readText(robotMessage);
 
   if (messageId === undefined) {
-    return failure("DINGTALK_MESSAGE_ID_MISSING", "DingTalk callback is missing message id.", {
-      callback,
-      warnings,
+    warnings.push({
+      code: "DINGTALK_MESSAGE_ID_MISSING",
+      message: "DingTalk callback is missing message id; weak dedupe key will be used.",
       field: "msgId",
     });
   }
@@ -98,7 +98,7 @@ export function mapDingTalkRobotMessage(
   const conversationType = normalizeConversationType(robotMessage.conversationType, warnings);
   const replyContext = createReplyContext(callback, robotMessage, messageId, senderId.value);
   const message: IncomingMessage = {
-    id: messageId,
+    ...(messageId !== undefined ? { id: messageId } : {}),
     text,
     senderId: senderId.value,
     conversationType,
@@ -269,11 +269,11 @@ function normalizeConversationType(
 function createReplyContext(
   callback: DingTalkRobotCallback,
   robotMessage: DingTalkRobotMessagePayload,
-  messageId: string,
+  messageId: string | undefined,
   senderId: string,
 ): DingTalkReplyContext {
   return {
-    messageId,
+    ...(messageId !== undefined ? { messageId } : {}),
     callbackMessageId: callback.headers.messageId,
     conversationId: readOptionalString(robotMessage.conversationId),
     senderId,

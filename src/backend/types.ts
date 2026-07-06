@@ -6,7 +6,7 @@ import type { AgentEnvironment } from "../session/types.js";
 /** Prompt input sent to an Agent backend for one inbound message. */
 export interface AgentInput {
   text: string;
-  messageId: string;
+  messageId?: string;
 }
 
 /** Runtime handle returned by a backend after opening an Agent environment. */

@@ -4,6 +4,13 @@ import { DWClient, TOPIC_ROBOT } from "dingtalk-stream-sdk-nodejs";
 
 import { AppError, createLogger, type Logger } from "../utils/index.js";
 import { DingTalkReplySink } from "./DingTalkReplySink.js";
+import { MessageDeduper, type MessageDeduperDecision } from "./MessageDeduper.js";
+import {
+  createConnectFailureLogContext,
+  createConnectionLogContext,
+  installStreamLifecycleLogging,
+  type StreamLifecycleCleanup,
+} from "./StreamLifecycleLogger.js";
 import { createDingTalkCallbackLogSample, mapDingTalkRobotMessage } from "./mapMessage.js";
 import type {
   DingTalkAdapterOptions,
@@ -29,8 +36,10 @@ export class DingTalkAdapter {
   private readonly handler: DingTalkAdapterOptions["handler"];
   private readonly createReplySink: DingTalkReplySinkFactory;
   private readonly client: DingTalkStreamClient;
+  private readonly deduper: MessageDeduper;
   private readonly logger: Logger;
   private readonly topic: string;
+  private readonly lifecycleCleanup: StreamLifecycleCleanup;
   private callbackRegistered = false;
   private started = false;
 
@@ -47,7 +56,9 @@ export class DingTalkAdapter {
         }));
     this.topic = options.topic ?? TOPIC_ROBOT;
     this.client = this.createClient(options);
+    this.deduper = options.deduper ?? new MessageDeduper({ logger: this.logger });
     patchSdkConsoleLeaks(this.client, this.logger);
+    this.lifecycleCleanup = installStreamLifecycleLogging(this.client, this.logger, this.topic);
   }
 
   /** Registers the robot callback and opens the DingTalk Stream connection. */
@@ -60,14 +71,28 @@ export class DingTalkAdapter {
     this.registerRobotCallback();
 
     try {
-      this.logger.info("Connecting DingTalk Stream adapter.", { topic: this.topic });
+      this.logger.info(
+        "Connecting DingTalk Stream adapter.",
+        createConnectionLogContext(this.client, this.topic),
+      );
       await connectWithoutSdkConsoleLog(this.client, this.logger);
       this.started = true;
-      this.logger.info("DingTalk Stream adapter started.", { topic: this.topic });
+      this.logger.info(
+        "DingTalk Stream adapter started.",
+        createConnectionLogContext(this.client, this.topic),
+      );
     } catch (error: unknown) {
-      throw new AppError("DINGTALK_STREAM_CONNECT_FAILED", "Failed to connect DingTalk Stream.", {
-        cause: error,
-      });
+      this.logger.error(
+        "DingTalk Stream connection failed; check DingTalk credentials and network connectivity.",
+        createConnectFailureLogContext(error, this.client, this.topic),
+      );
+      throw new AppError(
+        "DINGTALK_STREAM_CONNECT_FAILED",
+        "Failed to connect DingTalk Stream. Check dingtalk.clientId/clientSecret and network connectivity.",
+        {
+          cause: error,
+        },
+      );
     }
   }
 
@@ -85,6 +110,8 @@ export class DingTalkAdapter {
   /** Alias used by application shutdown code. */
   public close(): void {
     this.stop();
+    this.lifecycleCleanup();
+    this.deduper.close();
   }
 
   private createClient(options: DingTalkAdapterOptions): DingTalkStreamClient {
@@ -135,6 +162,13 @@ export class DingTalkAdapter {
     }
 
     this.logMappingWarnings(mapped.warnings);
+    const dedupeDecision = this.deduper.checkAndRemember(mapped.message);
+
+    if (!dedupeDecision.shouldProcess) {
+      this.logDuplicateMessage(dedupeDecision, mapped.message.senderId);
+      return;
+    }
+
     this.logger.debug("Mapped DingTalk robot message.", {
       messageId: mapped.message.id,
       senderId: mapped.message.senderId,
@@ -150,6 +184,16 @@ export class DingTalkAdapter {
     for (const warning of warnings) {
       this.logger.warn("DingTalk robot callback mapping warning.", { warning });
     }
+  }
+
+  private logDuplicateMessage(decision: MessageDeduperDecision, senderId: string): void {
+    this.logger.warn("Ignored duplicate DingTalk robot message.", {
+      messageId: decision.messageId,
+      keyType: decision.keyType,
+      dedupeKey: decision.key,
+      senderId,
+      expiresAt: decision.expiresAt.toISOString(),
+    });
   }
 }
 

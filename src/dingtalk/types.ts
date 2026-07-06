@@ -6,6 +6,7 @@ import type { DingTalkConfig } from "../config/types.js";
 import type { IncomingMessage } from "../messages/types.js";
 import type { ReplySink } from "../output/types.js";
 import type { Logger } from "../utils/logger.js";
+import type { MessageDeduper } from "./MessageDeduper.js";
 
 /** Raw downstream callback frame received from the DingTalk Stream SDK. */
 export type DingTalkRobotCallback = DWClientDownStream;
@@ -18,6 +19,10 @@ export interface DingTalkStreamClient {
   ): DingTalkStreamClient;
   connect(): Promise<void>;
   disconnect(): void;
+  getConfig?(): Partial<DingTalkStreamClientOptions>;
+  on?(eventName: string | symbol, listener: (...args: unknown[]) => void): unknown;
+  off?(eventName: string | symbol, listener: (...args: unknown[]) => void): unknown;
+  removeListener?(eventName: string | symbol, listener: (...args: unknown[]) => void): unknown;
 }
 
 /** Constructor options accepted by the official Stream SDK client. */
@@ -26,6 +31,7 @@ export interface DingTalkStreamClientOptions {
   clientSecret: string;
   keepAlive?: boolean;
   ua?: string;
+  autoReconnect?: boolean;
 }
 
 /** Factory used to create a real or fake DingTalk Stream client. */
@@ -61,7 +67,7 @@ export interface DingTalkRobotMessagePayload {
 
 /** Reply metadata preserved for later DingTalk reply-sink implementation. */
 export interface DingTalkReplyContext {
-  messageId: string;
+  messageId?: string;
   callbackMessageId?: string;
   conversationId?: string;
   senderId: string;
@@ -107,6 +113,7 @@ export interface DingTalkAdapterOptions {
   handler: DingTalkIncomingMessageHandler;
   createReplySink?: DingTalkReplySinkFactory;
   clientFactory?: DingTalkStreamClientFactory;
+  deduper?: MessageDeduper;
   logger?: Logger;
   topic?: string;
   keepAlive?: boolean;
