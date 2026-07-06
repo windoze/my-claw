@@ -10,7 +10,7 @@ interface DebuggableDingTalkStreamClient extends DingTalkStreamClient {
   connected?: boolean;
   registered?: boolean;
   reconnecting?: boolean;
-  printDebug?: (message: string) => void;
+  printDebug?: (message: unknown) => void;
   onSystem?: (downstream: DingTalkRobotCallback) => void;
 }
 
@@ -128,7 +128,7 @@ function patchSdkDebugLifecycleLogging(
   }
 
   const originalPrintDebug = sdkClient.printDebug.bind(sdkClient);
-  sdkClient.printDebug = (message: string): void => {
+  sdkClient.printDebug = (message: unknown): void => {
     logSdkDebugLifecycleMessage(message, client, logger, topic);
     originalPrintDebug(message);
   };
@@ -161,11 +161,18 @@ function patchSdkSystemLifecycleLogging(
 }
 
 function logSdkDebugLifecycleMessage(
-  message: string,
+  message: unknown,
   client: DingTalkStreamClient,
   logger: Logger,
   topic: string,
 ): void {
+  // The SDK calls printDebug with non-string payloads (e.g. downstream message
+  // objects) on every inbound message; only string debug lines carry the
+  // lifecycle text we classify below, so skip anything else.
+  if (typeof message !== "string") {
+    return;
+  }
+
   const normalizedMessage = message.toLowerCase();
 
   if (normalizedMessage.includes("socket open")) {
