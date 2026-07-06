@@ -4,7 +4,7 @@
 
 任务标题格式为 `Txx [TODO] 任务名`。coding agent 执行时可以把 `[TODO]` 更新为 `[IN_PROGRESS]`、`[DONE]` 或 `[BLOCKED]`。
 
-## T01 [TODO] 初始化 TypeScript 项目骨架
+## T01 [DONE] 初始化 TypeScript 项目骨架
 
 阶段：第一阶段，项目基础。
 
@@ -17,6 +17,8 @@
 实现细节：`.gitignore` 至少忽略 `node_modules/`、`dist/`、`.env`、`agent-dingtalk.config.jsonc`、`.agent-dingtalk-state.json`、`.agent-dingtalk-state.json.tmp`、日志文件。
 
 验收：运行 `npm run typecheck` 通过；运行 `npm run build` 通过；运行 `npm run dev` 能启动并输出一条明确的启动日志。
+
+完成记录：2026-07-06 完成 Node.js/TypeScript 项目骨架，包含一致的 ESM 模块配置、`dev`/`build`/`start`/`typecheck` 脚本、基础依赖、必需源码目录、顶层启动入口和启动日志。已验证 `npm run typecheck`、`npm run build`、`npm run dev` 和 `npm start` 通过。
 
 ## T02 [TODO] 增加配置样例和配置类型
 
