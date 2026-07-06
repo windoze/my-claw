@@ -388,7 +388,7 @@
 
 完成记录：2026-07-06 新增根目录 `README.md`，覆盖项目概览、第一阶段能力边界、钉钉测试组织/企业内部应用/机器人/Stream Mode 准备步骤、配置样例复制和 `AGENT_DINGTALK_CONFIG` 覆盖、`allowedUserIds` 通过首次脱敏 debug 样本确认、实际 `package.json` 脚本对应的运行命令、私聊支持命令 `/cc`、`/close`、`/state`、`/stop`、`/oc` 占位，以及 OpenCode、`/dl`、附件输入和卡片/AI Card 流式输出尚未支持的说明；文档强调真实配置文件和状态文件不得提交、第一阶段只支持私聊和单用户、本机 Agent 可能操作文件且需谨慎配置 `allowedRootDirs` 和 Claude 权限。未改动运行代码，未重新执行编译或测试；README 中命令已按 `package.json` 与配置样例核对。
 
-## T25 [TODO] 执行第一阶段端到端验收和修复
+## T25 [DONE] 执行第一阶段端到端验收和修复
 
 阶段：第一阶段，发布前验收。
 
@@ -401,6 +401,8 @@
 实现细节：记录每项验收结果；发现 bug 时修复并重新跑相关项；如果某项因为外部钉钉配置无法验证，写明阻塞原因和需要的外部操作。
 
 验收：第一阶段验收清单全部通过，或只剩明确外部阻塞项；`TODO.md` 中 T01 到 T25 状态按实际完成情况更新。
+
+完成记录：2026-07-06 新增 `docs/phase1-acceptance.md`，逐项记录第一阶段验收清单。已通过 `npm run typecheck`、`npm run build`、fake message 命令闭环、未授权用户拒绝、群聊拒绝、临时 state 重启恢复、fake DingTalk Stream client 启停、DingTalk callback 映射和 Text/Markdown webhook payload、运行中并发拒绝和 `/stop`、Claude Code adapter smoke、临时非敏感项目目录文件上下文读取、Claude Code fake query 中断映射验证。未发现需要修改运行代码的缺陷；真实钉钉私聊收发因当前环境缺少外部企业内部应用/机器人/Stream Mode 凭据和授权用户，作为明确外部阻塞项记录在验收文档。
 
 ## T26 [TODO] 第二阶段接入 OpenCode SDK 和 OpenCodeAdapter
 
