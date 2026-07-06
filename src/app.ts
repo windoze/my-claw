@@ -13,6 +13,7 @@ import type { AppConfig } from "./config/types.js";
 import type { IncomingMessage } from "./messages/types.js";
 import { OutputRenderer } from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
+import { SecurityGate, type SecurityGateDecision } from "./security/index.js";
 import { createSessionManager, type SessionManager } from "./session/index.js";
 import { StateStore } from "./state/index.js";
 import { createLogger, UserFacingError, type Logger } from "./utils/index.js";
@@ -24,6 +25,7 @@ const GENERIC_AGENT_ERROR_MESSAGE = "Agent 执行失败，请稍后重试或查�
 
 /** Result returned after one incoming message has been routed. */
 export interface HandleIncomingMessageResult {
+  authorized: boolean;
   handledByCommand: boolean;
   backendEvents: readonly AgentEvent[];
 }
@@ -34,6 +36,7 @@ export interface HandleIncomingMessageOptions {
   sessionManager: SessionManager;
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
+  securityGate?: SecurityGate;
   logger?: Logger;
   genericErrorMessage?: string;
 }
@@ -52,6 +55,7 @@ export interface AppRuntime {
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
   commandRouter: CommandRouter;
+  securityGate: SecurityGate;
   handleIncomingMessage: IncomingMessageHandler;
 }
 
@@ -78,11 +82,16 @@ export async function startApp(): Promise<AppRuntime> {
     sessionManager,
     logger: createLogger("commands"),
   });
+  const securityGate = new SecurityGate({
+    config: config.dingtalk,
+    logger: createLogger("security"),
+  });
   const handleIncomingMessage = createIncomingMessageHandler({
     commandRouter,
     sessionManager,
     backendRegistry,
     outputRenderer,
+    securityGate,
     logger: createLogger("messages"),
   });
 
@@ -97,6 +106,7 @@ export async function startApp(): Promise<AppRuntime> {
     backendRegistry,
     outputRenderer,
     commandRouter,
+    securityGate,
     handleIncomingMessage,
   };
 }
@@ -114,13 +124,40 @@ export async function handleIncomingMessage(
   replySink: ReplySink,
   options: HandleIncomingMessageOptions,
 ): Promise<HandleIncomingMessageResult> {
+  const authorization = await authorizeIncomingMessage(message, replySink, options);
+
+  if (!authorization.allowed) {
+    return { authorized: false, handledByCommand: false, backendEvents: [] };
+  }
+
   const handledByCommand = await options.commandRouter.handle(message, replySink);
 
   if (handledByCommand) {
-    return { handledByCommand: true, backendEvents: [] };
+    return { authorized: true, handledByCommand: true, backendEvents: [] };
   }
 
   return handleNormalMessage(message, replySink, options);
+}
+
+/** Enforces optional security before any command or backend side effect can run. */
+async function authorizeIncomingMessage(
+  message: IncomingMessage,
+  replySink: ReplySink,
+  options: HandleIncomingMessageOptions,
+): Promise<SecurityGateDecision> {
+  const securityGate = options.securityGate;
+
+  if (securityGate === undefined) {
+    return { allowed: true };
+  }
+
+  const decision = securityGate.authorize(message);
+
+  if (!decision.allowed && decision.replyText !== undefined) {
+    await replySink.sendText(decision.replyText);
+  }
+
+  return decision;
 }
 
 /** Handles non-command text by enforcing runtime state and invoking the selected backend. */
@@ -133,7 +170,7 @@ async function handleNormalMessage(
 
   if (!(await options.sessionManager.canAcceptNormalMessage())) {
     await replyNormalMessageRejected(options.sessionManager, replySink);
-    return { handledByCommand: false, backendEvents: [] };
+    return { authorized: true, handledByCommand: false, backendEvents: [] };
   }
 
   let taskStarted = false;
@@ -175,7 +212,7 @@ async function handleNormalMessage(
     }
   }
 
-  return { handledByCommand: false, backendEvents: events };
+  return { authorized: true, handledByCommand: false, backendEvents: events };
 }
 
 /** Sends the state-specific rejection used when another normal message is already active. */

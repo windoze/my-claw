@@ -15,6 +15,7 @@ import type { ConversationType, IncomingMessage } from "../messages/types.js";
 import { OutputRenderer } from "../output/OutputRenderer.js";
 import type { ReplySink } from "../output/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
+import { SecurityGate } from "../security/SecurityGate.js";
 import { SessionManager } from "../session/SessionManager.js";
 import { StateStore } from "../state/StateStore.js";
 import { FakeBackendAdapter } from "./FakeBackendAdapter.js";
@@ -32,6 +33,8 @@ export interface CreateFakeMessageRuntimeOptions {
   statePath?: string;
   replySink?: FakeReplySink;
   backend?: FakeBackendAdapter;
+  allowedUserIds?: readonly string[];
+  rejectGroupMessages?: boolean;
   now?: () => Date;
 }
 
@@ -44,6 +47,7 @@ export interface FakeMessageRuntime {
   replySink: FakeReplySink;
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
+  securityGate: SecurityGate;
   handleIncomingMessage: IncomingMessageHandler;
   backend: FakeBackendAdapter;
   dispose(): Promise<void>;
@@ -60,6 +64,7 @@ export interface RunFakeMessageOptions {
 /** Result of routing one fake message. */
 export interface RunFakeMessageResult {
   message: IncomingMessage;
+  authorized: boolean;
   handledByCommand: boolean;
   replyCalls: readonly FakeReplyCall[];
   backendEvents: readonly AgentEvent[];
@@ -93,7 +98,10 @@ export async function createFakeMessageRuntime(
     baseDir: configuredCwd,
   });
   const realCwd = await pathPolicy.assertAllowedDir(configuredCwd, { baseDir: configuredCwd });
-  const config = createFakeConfig(realCwd, pathPolicy.allowedRootDirs);
+  const config = createFakeConfig(realCwd, pathPolicy.allowedRootDirs, {
+    allowedUserIds: options.allowedUserIds,
+    rejectGroupMessages: options.rejectGroupMessages,
+  });
   const tempState = options.statePath === undefined ? await createTempStateLocation() : null;
   const stateStore = new StateStore({
     statePath: options.statePath ?? tempState?.statePath,
@@ -113,11 +121,13 @@ export async function createFakeMessageRuntime(
   const backendRegistry = new BackendRegistry([["claude-code", backend]]);
   const outputRenderer = new OutputRenderer({ config: config.output });
   const commandRouter = new CommandRouter({ sessionManager });
+  const securityGate = new SecurityGate({ config: config.dingtalk });
   const handleIncomingMessage = createIncomingMessageHandler({
     commandRouter,
     sessionManager,
     backendRegistry,
     outputRenderer,
+    securityGate,
   });
 
   return {
@@ -128,6 +138,7 @@ export async function createFakeMessageRuntime(
     replySink,
     backendRegistry,
     outputRenderer,
+    securityGate,
     handleIncomingMessage,
     backend,
     dispose: async () => {
@@ -154,6 +165,7 @@ export async function runFakeMessage(
 
     return {
       message,
+      authorized: handleResult.authorized,
       handledByCommand: handleResult.handledByCommand,
       replyCalls,
       backendEvents: handleResult.backendEvents,
@@ -180,13 +192,21 @@ export async function renderFakeBackendEvents(
 }
 
 /** Builds the minimal validated-looking config needed by SessionManager. */
-function createFakeConfig(cwd: string, allowedRootDirs: readonly string[]): AppConfig {
+function createFakeConfig(
+  cwd: string,
+  allowedRootDirs: readonly string[],
+  options: {
+    allowedUserIds?: readonly string[];
+    rejectGroupMessages?: boolean;
+  },
+): AppConfig {
   return {
     dingtalk: {
       clientId: "fake-client-id",
       clientSecret: "fake-client-secret",
-      allowedUserIds: [DEFAULT_SENDER_ID],
-      rejectGroupMessages: true,
+      allowedUserIds:
+        options.allowedUserIds !== undefined ? [...options.allowedUserIds] : [DEFAULT_SENDER_ID],
+      rejectGroupMessages: options.rejectGroupMessages ?? true,
     },
     defaultEnvironment: {
       backend: "claude-code",
@@ -371,7 +391,7 @@ function writeUsage(): void {
 function writeResult(result: RunFakeMessageResult): void {
   const lines = [
     `> ${result.message.text}`,
-    `handled: ${result.handledByCommand ? "command" : "fake-backend"}`,
+    `handled: ${formatHandledBy(result)}`,
   ];
 
   if (result.replyCalls.length === 0) {
@@ -381,6 +401,15 @@ function writeResult(result: RunFakeMessageResult): void {
   }
 
   process.stdout.write(`${lines.join("\n")}\n\n`);
+}
+
+/** Names the code path taken by the fake runner for quick manual inspection. */
+function formatHandledBy(result: RunFakeMessageResult): string {
+  if (!result.authorized) {
+    return "security-gate";
+  }
+
+  return result.handledByCommand ? "command" : "fake-backend";
 }
 
 /** Formats recorded fake reply calls for CLI output. */

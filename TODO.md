@@ -308,7 +308,7 @@
 
 完成记录：2026-07-06 安装官方 `dingtalk-stream-sdk-nodejs`，新增 `src/dingtalk/DingTalkAdapter.ts`、`src/dingtalk/types.ts`、`src/dingtalk/mapMessage.ts` 和 `src/dingtalk/index.ts`；`DingTalkAdapter.start()` 使用 `clientId`/`clientSecret` 创建 Stream client、幂等注册机器人消息 topic 回调并调用 `connect()`，回调只负责把 raw callback 集中映射为内部 `IncomingMessage` 后交给注入的 handler 和 ReplySink factory，不直接执行业务逻辑；`mapMessage.ts` 集中处理 `msgId`/callback `messageId`、`senderStaffId`/`senderId`、私聊/群聊类型、文本内容和 `sessionWebhook` 回复上下文，字段缺失或不支持时返回映射失败并由 adapter 记录 warn、忽略该 callback 而不崩溃；第一批真实消息 debug 样本只记录字段名、ID、类型、文本长度和 webhook/robotCode 是否存在，避免输出完整 `sessionWebhook` 或凭证，并对 SDK 内部原始 console.log 做抑制以避免泄露。已验证 `npm run typecheck`、`npm run build`、focused DingTalk mapper/adapter check（私聊文本映射、redacted debug sample、缺字段 warn 路径、start 注册 topic 并调用 connect、callback 交给 handler、重复 start 不重复注册）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
-## T20 [TODO] 实现 SecurityGate 私聊和单用户校验
+## T20 [DONE] 实现 SecurityGate 私聊和单用户校验
 
 阶段：第一阶段，钉钉安全。
 
@@ -321,6 +321,8 @@
 实现细节：安全校验必须发生在 `CommandRouter` 和后端调用之前；未授权消息不能触发 `/state`、`/cc`、`/stop` 等任何逻辑。
 
 验收：授权用户私聊 `/state` 有响应；未授权用户无响应且日志有 warn；群聊消息无响应且不触发状态变化。
+
+完成记录：2026-07-06 新增 `src/security/SecurityGate.ts` 并从 `src/security/index.ts` 导出，按 `conversationType === "private"`、`dingtalk.rejectGroupMessages` 和 `dingtalk.allowedUserIds` 在命令路由和后端执行前完成授权；未授权用户和群聊/非私聊消息只记录安全 warn 且不回复、不触发 `/state`、`/cc`、`/stop` 或普通后端消息；授权用户空文本会回复 `暂不支持该消息类型` 且不会进入后端。`src/app.ts` 的共享 `handleIncomingMessage` 已接入可注入的 `SecurityGate`，`startApp()` 会用配置创建安全门；fake-message runtime 已同步接入安全门，支持本地验证授权、未授权、群聊和空文本路径。已验证 `npm run typecheck`、`npm run build`、focused SecurityGate acceptance（授权私聊 `/state`、未授权私聊无响应且 backend 不触发、群聊 `/cc` 不改变状态、空文本回复不支持且 backend 不触发）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
 ## T21 [TODO] 实现钉钉 Text 和 Markdown 回复
 
