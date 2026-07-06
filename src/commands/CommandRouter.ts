@@ -6,16 +6,21 @@ import { UserFacingError } from "../utils/errors.js";
 import { createLogger, type Logger } from "../utils/logger.js";
 import {
   createDefaultCommandHandlers,
+  createSessionCommandHandlers,
   type CommandHandlers,
   type HandledCommandParseResult,
+  type StopCommandCallback,
 } from "./handlers.js";
 import { parseCommand } from "./parseCommand.js";
 import type { CommandParseResult } from "./types.js";
+import type { SessionManager } from "../session/SessionManager.js";
 
 const GENERIC_COMMAND_ERROR_MESSAGE = "命令处理失败，请稍后重试或查看服务日志。";
 
 export interface CommandRouterOptions {
   handlers?: Partial<CommandHandlers>;
+  sessionManager?: SessionManager;
+  stopCurrentTask?: StopCommandCallback;
   logger?: Logger;
   genericErrorMessage?: string;
 }
@@ -27,7 +32,7 @@ export class CommandRouter {
   private readonly genericErrorMessage: string;
 
   public constructor(options: CommandRouterOptions = {}) {
-    this.handlers = mergeHandlers(options.handlers);
+    this.handlers = mergeHandlers(options.handlers, createBaseHandlers(options));
     this.logger = options.logger ?? createLogger("commands");
     this.genericErrorMessage = options.genericErrorMessage ?? GENERIC_COMMAND_ERROR_MESSAGE;
   }
@@ -88,9 +93,10 @@ export class CommandRouter {
   }
 }
 
-function mergeHandlers(overrides: Partial<CommandHandlers> | undefined): CommandHandlers {
-  const defaults = createDefaultCommandHandlers();
-
+function mergeHandlers(
+  overrides: Partial<CommandHandlers> | undefined,
+  defaults: CommandHandlers,
+): CommandHandlers {
   if (overrides === undefined) {
     return defaults;
   }
@@ -104,6 +110,17 @@ function mergeHandlers(overrides: Partial<CommandHandlers> | undefined): Command
     invalid: overrides.invalid ?? defaults.invalid,
     unknown: overrides.unknown ?? defaults.unknown,
   };
+}
+
+function createBaseHandlers(options: CommandRouterOptions): CommandHandlers {
+  if (options.sessionManager !== undefined) {
+    return createSessionCommandHandlers({
+      sessionManager: options.sessionManager,
+      stopCurrentTask: options.stopCurrentTask,
+    });
+  }
+
+  return createDefaultCommandHandlers();
 }
 
 function describeCommand(command: CommandParseResult): Record<string, string> {

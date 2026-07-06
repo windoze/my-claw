@@ -164,7 +164,7 @@
 
 完成记录：2026-07-06 新增 `src/session/SessionManager.ts` 和 `src/session/index.ts`，实现默认环境与 active project 环境选择、`openClaudeProject(dir)` 路径白名单校验与 `activeProject`/`knownProjects` 持久化、`closeProject()` 回到默认环境并保留项目 session、脱敏 `getStateSummary()`、普通消息与 `/cc`/`/close` 的运行态拒绝规则、`/state`/`/stop` 可用性判断、运行任务 `running`/`stopping`/`idle` 状态迁移以及默认/项目 sessionId 保存。已验证 `npm run typecheck`、`npm run build`，并通过本地 `tsx` acceptance 检查覆盖默认环境、`/cc` 切换项目、`/close` 回默认、运行中拒绝切换、运行中优先返回忙碌错误、停止状态决策、项目 session 保留、状态摘要 sessionId 脱敏和白名单外目录拒绝。
 
-## T11 [TODO] 实现第一阶段命令处理器
+## T11 [DONE] 实现第一阶段命令处理器
 
 阶段：第一阶段，命令功能。
 
@@ -177,6 +177,8 @@
 实现细节：`/state` 输出不能包含 `clientSecret`、完整配置、环境变量；session ID 可以截断显示，例如只显示前 8 位和后 4 位。
 
 验收：所有命令通过 fake reply 返回预期文本；`/cc` 参数为空有明确用法提示；`/oc` 不改变状态。
+
+完成记录：2026-07-06 实现 `src/output/formatState.ts`，将 `SessionManager.getStateSummary()` 渲染为不包含 `clientSecret`、完整配置或环境变量的 Markdown 状态摘要，并截断显示 session ID；新增 SessionManager 驱动的命令处理器，完成 `/state`、`/cc <dir>`、`/close`、`/stop` 状态层行为和 `/oc` 第二阶段占位回复；`CommandRouter` 支持注入 `SessionManager` 与后续后端 stop 回调，`/cc` 和 `/close` 在运行中优先返回忙碌拒绝，`/cc` 参数缺失返回明确用法，路径白名单错误可安全回复给用户。已验证 `npm run typecheck`、`npm run build`，并通过本地 `tsx` fake reply acceptance 覆盖 `/state`、`/cc` 缺参、带空格路径切换、运行中拒绝切换、白名单外目录拒绝、session ID 脱敏、`/close`、`/stop` idle/running/stopping 和 `/oc` 不改变状态。
 
 ## T12 [TODO] 增加 FakeReplySink 和 FakeBackend 便于本地集成测试
 

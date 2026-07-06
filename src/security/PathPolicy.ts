@@ -7,7 +7,7 @@ import {
   realpathDir,
   resolveUserPath,
 } from "../utils/path.js";
-import { AppError } from "../utils/errors.js";
+import { UserFacingError } from "../utils/errors.js";
 
 /** Options for resolving user-provided paths before policy checks. */
 export interface PathPolicyOptions {
@@ -21,7 +21,7 @@ export type PathPolicyErrorCode =
   | "PATH_ALLOWED_ROOTS_EMPTY";
 
 /** Error raised when a directory cannot be used under the configured path policy. */
-export class PathPolicyError extends AppError {
+export class PathPolicyError extends UserFacingError {
   public readonly code: PathPolicyErrorCode;
   public readonly inputPath: string;
   public readonly resolvedPath?: string;

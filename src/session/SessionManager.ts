@@ -237,6 +237,16 @@ export class SessionManager {
     return state.runtime.status === "idle";
   }
 
+  /** Throws the state-machine rejection that applies to a stateful slash command. */
+  public async assertCanAcceptCommand(commandName: StatefulCommandName): Promise<void> {
+    if (commandName === "state" || commandName === "stop") {
+      return;
+    }
+
+    const state = await this.stateStore.read();
+    assertProjectMutationAllowed(state.runtime.status);
+  }
+
   /** Reports the `/stop` decision without mutating state. */
   public async getStopState(): Promise<StopState> {
     const state = await this.stateStore.read();

@@ -1,22 +1,28 @@
 # Execution Plan
 
-I cannot record private chain-of-thought verbatim, but this file will track the actionable plan, decisions, and progress for the current invocation.
+I will maintain this file as a concise progress log and actionable plan. I will not record hidden chain-of-thought, but I will record the decisions, task status, and step-by-step execution plan needed to audit progress.
 
-1. Read `TODO.md` and identify the first task whose heading is not prefixed with `[DONE]`.
-2. Check the latest commit message only for unfinished work directly relevant to that selected task.
-3. Inspect the task details, dependencies, validation requirements, and related project files.
-4. Implement the selected task completely, or add the minimum prerequisite task if a concrete blocker makes correct implementation impossible.
+## Current Plan
+
+1. Read `TODO.md` to identify the first task whose title is not prefixed with `[DONE]`.
+2. Review the selected task's requirements, dependencies, validation notes, and any directly relevant latest-commit context.
+3. Inspect only the code and documentation needed for that task.
+4. Implement the task completely, or add the minimum prerequisite task to `TODO.md` if a concrete blocker prevents correct implementation.
 5. Run formatting, linting, and relevant tests in the required order.
-6. Update `TODO.md` by prefixing the completed task heading with `[DONE]` and adding a completion record, or document any blocker/prerequisite without marking it complete.
-7. Update this file after key milestones or plan changes.
-8. Commit all changes for this invocation with a descriptive message and the required co-author trailer.
-9. Stop after completing or blocking exactly one task.
+6. Update `TODO.md` with a `[DONE]` prefix and completion record if the task is completed; update `PLAN.md` only if phase-level planning changes.
+7. Commit all task-related changes with a clear message and the required co-author trailer.
+8. Stop after exactly one task.
 
 ## Progress
 
-- Selected first incomplete task: `T10 [DONE] 实现 SessionManager 的环境选择和状态机`.
-- Next step: inspect the existing session, state, command, config, and security modules plus latest commit context for direct relevance.
-- Implemented `src/session/SessionManager.ts` and `src/session/index.ts` with environment selection, `/cc` and `/close` state transitions, runtime concurrency helpers, stop-state decisions, session-id persistence, and sanitized state summaries.
-- Next step: run the existing TypeScript validation commands and fix any compile/build issues.
-- Validation passed with `npm run typecheck`, `npm run build`, and focused local `tsx` acceptance checks for the T10 state-machine requirements.
-- Marked `T10` as `[DONE]` in `TODO.md` with a completion record and reviewed the final diff. Next step: commit the task changes and stop.
+- Initialized progress plan.
+- Selected first incomplete task: `T11 [DONE] 实现第一阶段命令处理器`.
+- Next step: inspect command handler, session manager, and output formatting surfaces needed for T11.
+- Baseline `npm run typecheck` and `npm run build` passed.
+- Implementation plan: add `formatState` Markdown rendering, replace placeholder command handlers with SessionManager-backed handlers, support optional `/stop` callback injection, and keep `/oc` as a non-mutating placeholder.
+- Implemented `src/output/formatState.ts`, SessionManager-backed command handlers, `CommandRouter` SessionManager injection, and user-facing `/cc` path-policy errors.
+- Post-change `npm run typecheck` and `npm run build` passed.
+- Next step: run focused fake-reply acceptance checks for `/state`, `/cc`, `/close`, `/stop`, and `/oc`.
+- Focused fake-reply acceptance checks passed after enforcing running-state rejection before `/cc` argument validation.
+- Marked `T11` as `[DONE]` in `TODO.md` with the completion record.
+- Next step: review final diff, commit T11 changes, and stop.
