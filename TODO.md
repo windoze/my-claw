@@ -244,7 +244,7 @@
 
 完成记录：2026-07-06 完成 Claude Code session 保存和恢复链路；`ClaudeCodeAdapter` 现在会把环境中的持久化 session ID 传给 SDK `options.resume`，成功 result 会刷新 backend session 的 `sessionId` 并继续通过 `AgentEvent.done.sessionId` 交给 `SessionManager.saveSessionId()` 持久化；当存量 session 无法恢复时会记录 warn、发送“已创建新会话”的用户可见提示，并不绕过错误地重试为一个新 Claude 会话，且同一 abort/query 记录仍兼容后续 `/stop` 中断。`npm run claude:prompt` 新增 `--resume <session-id>` 便于本地验证恢复。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、mock SDK resume/fallback/sessionId 刷新检查、真实 Claude Code 两轮 `--resume` 上下文恢复，以及持久化 fake state 重启恢复 session 显示。
 
-## T16 [TODO] 打通普通消息到 Claude Code 的本地路由
+## T16 [DONE] 打通普通消息到 Claude Code 的本地路由
 
 阶段：第一阶段，核心链路。
 
@@ -257,6 +257,8 @@
 实现细节：普通消息运行中再次收到普通消息，要回复 `Agent 正在运行，发送 /stop 可中断当前任务。`；所有 finally 块必须保证状态恢复，除非当前正在 `stopping` 并由 stop 流程接管。
 
 验收：fake 输入普通消息能触发 Claude Code；运行状态从 `idle` 到 `running` 再到 `idle`；失败时状态也回 `idle`。
+
+完成记录：2026-07-06 新增共享 `handleIncomingMessage` 路由，先由 `CommandRouter` 处理 slash command，普通消息在 `SessionManager.canAcceptNormalMessage()` 通过后切换运行状态、调用当前环境 backend、收集 `AgentEvent`、保存完成事件中的 session ID、通过 `OutputRenderer` 回复并在成功或失败后关闭 backend session 且恢复 `idle`；运行中普通消息会回复 `Agent 正在运行，发送 /stop 可中断当前任务。`。新增 `src/output/OutputRenderer.ts` 和输出公共导出，支持第一阶段 Markdown 渲染文本、完成、错误、中断和空输出事件；fake-message 本地运行时已改为复用共享路由。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，并通过 focused 本地检查覆盖普通消息触发 backend、运行状态 `idle -> running -> idle`、运行中拒绝文本和 backend 失败后恢复 `idle`。
 
 ## T17 [TODO] 实现 `/stop` 对 Claude Code 的真实中断
 

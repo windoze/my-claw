@@ -6,11 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createIncomingMessageHandler, type IncomingMessageHandler } from "../app.js";
 import { BackendRegistry } from "../backend/BackendRegistry.js";
-import type { AgentEvent, BackendSession } from "../backend/types.js";
+import type { AgentEvent } from "../backend/types.js";
 import { CommandRouter } from "../commands/CommandRouter.js";
 import type { AppConfig } from "../config/types.js";
 import type { ConversationType, IncomingMessage } from "../messages/types.js";
+import { OutputRenderer } from "../output/OutputRenderer.js";
 import type { ReplySink } from "../output/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { SessionManager } from "../session/SessionManager.js";
@@ -41,6 +43,8 @@ export interface FakeMessageRuntime {
   stateStore: StateStore;
   replySink: FakeReplySink;
   backendRegistry: BackendRegistry;
+  outputRenderer: OutputRenderer;
+  handleIncomingMessage: IncomingMessageHandler;
   backend: FakeBackendAdapter;
   dispose(): Promise<void>;
 }
@@ -107,14 +111,24 @@ export async function createFakeMessageRuntime(
   const replySink = options.replySink ?? new FakeReplySink();
   const backend = options.backend ?? new FakeBackendAdapter();
   const backendRegistry = new BackendRegistry([["claude-code", backend]]);
+  const outputRenderer = new OutputRenderer({ config: config.output });
+  const commandRouter = new CommandRouter({ sessionManager });
+  const handleIncomingMessage = createIncomingMessageHandler({
+    commandRouter,
+    sessionManager,
+    backendRegistry,
+    outputRenderer,
+  });
 
   return {
     config,
-    commandRouter: new CommandRouter({ sessionManager }),
+    commandRouter,
     sessionManager,
     stateStore,
     replySink,
     backendRegistry,
+    outputRenderer,
+    handleIncomingMessage,
     backend,
     dispose: async () => {
       if (tempState !== null) {
@@ -135,17 +149,14 @@ export async function runFakeMessage(
   try {
     const firstReplyIndex = runtime.replySink.calls.length;
     const message = createIncomingMessage(text, options);
-    const handledByCommand = await runtime.commandRouter.handle(message, runtime.replySink);
-    const backendEvents = handledByCommand
-      ? []
-      : await routeToFakeBackend(message, runtime);
+    const handleResult = await runtime.handleIncomingMessage(message, runtime.replySink);
     const replyCalls = runtime.replySink.calls.slice(firstReplyIndex);
 
     return {
       message,
-      handledByCommand,
+      handledByCommand: handleResult.handledByCommand,
       replyCalls,
-      backendEvents,
+      backendEvents: handleResult.backendEvents,
     };
   } finally {
     if (createdRuntime) {
@@ -154,32 +165,18 @@ export async function runFakeMessage(
   }
 }
 
-/** Sends backend events to a reply sink using the first-stage text-only fake renderer. */
+/** Sends backend events to a reply sink using the shared output renderer. */
 export async function renderFakeBackendEvents(
   events: readonly AgentEvent[],
   replySink: ReplySink,
 ): Promise<void> {
-  for (const event of events) {
-    switch (event.type) {
-      case "text":
-        await replySink.sendText(event.text);
-        break;
-      case "done":
-        if (event.result !== undefined) {
-          await replySink.sendText(event.result);
-        }
-        break;
-      case "error":
-        await replySink.sendText(`Fake backend error: ${event.message}`);
-        break;
-      case "stopped":
-        await replySink.sendText(event.message ?? "Fake backend stopped.");
-        break;
-      case "tool_start":
-      case "tool_finish":
-        break;
-    }
-  }
+  const renderer = new OutputRenderer({
+    config: {
+      mode: "markdown",
+      maxMessageChars: DEFAULT_OUTPUT_MAX_MESSAGE_CHARS,
+    },
+  });
+  await renderer.render(events, replySink);
 }
 
 /** Builds the minimal validated-looking config needed by SessionManager. */
@@ -219,68 +216,6 @@ function createIncomingMessage(
     senderId: options.senderId ?? DEFAULT_SENDER_ID,
     conversationType: options.conversationType ?? "private",
   };
-}
-
-/** Runs a normal non-command message through the fake backend and updates session state. */
-async function routeToFakeBackend(
-  message: IncomingMessage,
-  runtime: FakeMessageRuntime,
-): Promise<AgentEvent[]> {
-  if (!(await runtime.sessionManager.canAcceptNormalMessage())) {
-    await runtime.replySink.sendText("当前已有任务正在运行，请等待完成后再发送新消息。");
-    return [];
-  }
-
-  const environment = await runtime.sessionManager.getCurrentEnvironment();
-  const backend = runtime.backendRegistry.get(environment);
-  await runtime.sessionManager.startTask({ messageId: message.id });
-  let session: BackendSession | null = null;
-
-  try {
-    session = await backend.open(environment);
-    const events = await collectAgentEvents(
-      backend.send(session, { text: message.text, messageId: message.id }),
-    );
-    await renderFakeBackendEvents(events, runtime.replySink);
-    await saveDoneSessionId(events, environment, runtime.sessionManager);
-
-    return events;
-  } finally {
-    try {
-      if (session !== null) {
-        await backend.close(session);
-      }
-    } finally {
-      await runtime.sessionManager.markIdle();
-    }
-  }
-}
-
-/** Collects an Agent event stream for the first-stage fake renderer. */
-async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
-  const collectedEvents: AgentEvent[] = [];
-
-  for await (const event of events) {
-    collectedEvents.push(event);
-  }
-
-  return collectedEvents;
-}
-
-/** Persists the fake session id emitted by a done event. */
-async function saveDoneSessionId(
-  events: readonly AgentEvent[],
-  environment: Awaited<ReturnType<SessionManager["getCurrentEnvironment"]>>,
-  sessionManager: SessionManager,
-): Promise<void> {
-  const doneWithSession = events.find(
-    (event): event is Extract<AgentEvent, { type: "done" }> & { sessionId: string } =>
-      event.type === "done" && event.sessionId !== undefined,
-  );
-
-  if (doneWithSession !== undefined) {
-    await sessionManager.saveSessionId(environment, doneWithSession.sessionId);
-  }
 }
 
 /** Allocates an isolated temp state file for one fake CLI/function run. */
