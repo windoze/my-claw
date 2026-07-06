@@ -1,0 +1,37 @@
+{
+  // Copy this file to agent-dingtalk.config.jsonc and replace the DingTalk credentials.
+  "dingtalk": {
+    "clientId": "dingxxxxxxxxxxxxxxxx",
+    "clientSecret": "replace-with-dingtalk-client-secret",
+    "robotCode": "dingbotxxxxxxxx",
+    "allowedUserIds": ["replace-with-your-dingtalk-user-id"],
+    "rejectGroupMessages": true
+  },
+  "defaultEnvironment": {
+    "backend": "claude-code",
+    "cwd": ".",
+    "agent": "default",
+    "model": "sonnet"
+  },
+  "projects": [
+    {
+      "name": "my-claw",
+      "backend": "claude-code",
+      "cwd": ".",
+      "agent": "default",
+      "model": "sonnet"
+    }
+  ],
+  "security": {
+    "allowedRootDirs": ["."]
+  },
+  "claudeCode": {
+    "permissionMode": "acceptEdits",
+    "allowedTools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+    "maxTurns": 20
+  },
+  "output": {
+    "mode": "markdown",
+    "maxMessageChars": 18000
+  }
+}

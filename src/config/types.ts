@@ -1,0 +1,57 @@
+/** Configuration model for agent-dingtalk.config.jsonc. */
+
+/** Backend names accepted by configuration; extend this union when OpenCode is enabled. */
+export type AgentBackend = "claude-code";
+
+/** Output renderer modes accepted by configuration. */
+export type OutputMode = "markdown";
+
+/** Agent execution environment shared by the default context and named projects. */
+export interface AgentEnvironmentConfig {
+  backend: AgentBackend;
+  cwd: string;
+  agent?: string;
+  model?: string;
+}
+
+/** Optional named project users can open without retyping all environment settings. */
+export interface ProjectConfig extends AgentEnvironmentConfig {
+  name: string;
+}
+
+/** DingTalk Stream Mode and authorization settings. */
+export interface DingTalkConfig {
+  clientId: string;
+  clientSecret: string;
+  robotCode?: string;
+  allowedUserIds: string[];
+  rejectGroupMessages: boolean;
+}
+
+/** Filesystem allowlist used before opening local Agent working directories. */
+export interface SecurityConfig {
+  allowedRootDirs: string[];
+}
+
+/** Claude Code backend defaults passed to the Claude Agent SDK adapter. */
+export interface ClaudeCodeConfig {
+  permissionMode?: string;
+  allowedTools?: string[];
+  maxTurns: number;
+}
+
+/** DingTalk reply rendering behavior. */
+export interface OutputConfig {
+  mode: OutputMode;
+  maxMessageChars: number;
+}
+
+/** Fully validated application configuration used by runtime modules. */
+export interface AppConfig {
+  dingtalk: DingTalkConfig;
+  defaultEnvironment: AgentEnvironmentConfig;
+  projects?: ProjectConfig[];
+  security: SecurityConfig;
+  claudeCode: ClaudeCodeConfig;
+  output: OutputConfig;
+}

@@ -20,7 +20,7 @@
 
 完成记录：2026-07-06 完成 Node.js/TypeScript 项目骨架，包含一致的 ESM 模块配置、`dev`/`build`/`start`/`typecheck` 脚本、基础依赖、必需源码目录、顶层启动入口和启动日志。已验证 `npm run typecheck`、`npm run build`、`npm run dev` 和 `npm start` 通过。
 
-## T02 [TODO] 增加配置样例和配置类型
+## T02 [DONE] 增加配置样例和配置类型
 
 阶段：第一阶段，配置基础。
 
@@ -33,6 +33,8 @@
 实现细节：`src/config/types.ts` 定义 `AppConfig`、`AgentEnvironmentConfig`、`ProjectConfig`、`DingTalkConfig`、`SecurityConfig`、`ClaudeCodeConfig`、`OutputConfig`。第一阶段 `backend` 只允许 `claude-code`，但类型命名要方便第二阶段扩展 `opencode`。
 
 验收：配置样例可以直接复制为 `agent-dingtalk.config.jsonc` 并被后续 `ConfigLoader` 使用；类型文件不依赖具体实现模块，避免循环依赖。
+
+完成记录：2026-07-06 新增 `agent-dingtalk.config.example.jsonc`，覆盖钉钉凭证、默认环境、项目样例、安全白名单、Claude Code 设置和输出设置；新增 `src/config/types.ts`，定义配置结构类型且不依赖具体实现模块。已验证配置样例可被 `jsonc-parser` 解析，`npm run typecheck` 和 `npm run build` 通过。
 
 ## T03 [TODO] 实现配置加载和 Zod 校验
 
