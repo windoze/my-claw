@@ -292,7 +292,7 @@
 
 完成记录：2026-07-06 实现 Markdown 输出渲染和长消息分段：`OutputRenderer.render()` 现在聚合 `AgentEvent.text` 与 `done.result`，空输出发送 `任务已完成，但没有文本输出。`，错误事件统一格式化为 `执行失败：...`，中断事件统一格式化为 `当前 Agent 任务已中断。`；新增 `src/output/splitMarkdown.ts`，按 `output.maxMessageChars` 分段发送 Markdown，优先按段落、行和空白边界切分，并在长代码块分段时补齐 fenced code block 围栏，极小限制下退化为带提示的普通文本分段；新增 `src/output/formatErrors.ts` 统一输出错误格式。已验证 `npm run typecheck`、`npm run build`、focused built-output renderer checks（短输出、长输出、代码块、空输出、错误、中断）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
-## T19 [TODO] 安装并封装钉钉 Stream SDK
+## T19 [DONE] 安装并封装钉钉 Stream SDK
 
 阶段：第一阶段，钉钉接入。
 
@@ -305,6 +305,8 @@
 实现细节：第一批真实消息需要 debug 记录 raw 字段样本，但必须脱敏；重点确认 `messageId`、`senderId`、私聊类型字段、文本字段、可回复上下文字段；字段映射集中放在 `mapMessage.ts`，不要散落在业务代码中。
 
 验收：服务能连接钉钉 Stream Mode；收到私聊文本时日志显示已映射为 `IncomingMessage`；字段缺失时记录 warn 而不是崩溃。
+
+完成记录：2026-07-06 安装官方 `dingtalk-stream-sdk-nodejs`，新增 `src/dingtalk/DingTalkAdapter.ts`、`src/dingtalk/types.ts`、`src/dingtalk/mapMessage.ts` 和 `src/dingtalk/index.ts`；`DingTalkAdapter.start()` 使用 `clientId`/`clientSecret` 创建 Stream client、幂等注册机器人消息 topic 回调并调用 `connect()`，回调只负责把 raw callback 集中映射为内部 `IncomingMessage` 后交给注入的 handler 和 ReplySink factory，不直接执行业务逻辑；`mapMessage.ts` 集中处理 `msgId`/callback `messageId`、`senderStaffId`/`senderId`、私聊/群聊类型、文本内容和 `sessionWebhook` 回复上下文，字段缺失或不支持时返回映射失败并由 adapter 记录 warn、忽略该 callback 而不崩溃；第一批真实消息 debug 样本只记录字段名、ID、类型、文本长度和 webhook/robotCode 是否存在，避免输出完整 `sessionWebhook` 或凭证，并对 SDK 内部原始 console.log 做抑制以避免泄露。已验证 `npm run typecheck`、`npm run build`、focused DingTalk mapper/adapter check（私聊文本映射、redacted debug sample、缺字段 warn 路径、start 注册 topic 并调用 connect、callback 交给 handler、重复 start 不重复注册）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
 ## T20 [TODO] 实现 SecurityGate 私聊和单用户校验
 
