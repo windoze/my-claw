@@ -1,6 +1,11 @@
 /** DingTalk robot callback mapping into the gateway's internal message contract. */
 
-import type { ConversationType, IncomingMessage } from "../messages/types.js";
+import type {
+  ConversationType,
+  IncomingMessage,
+  IncomingMessageAttachment,
+  IncomingMessageAttachmentType,
+} from "../messages/types.js";
 import type {
   DingTalkMessageMappingFailure,
   DingTalkMessageMappingResult,
@@ -40,6 +45,8 @@ export interface DingTalkCallbackLogSample {
     normalizedConversationType?: ConversationType;
     msgtype?: string;
     textLength?: number;
+    attachmentCount?: number;
+    hasAttachmentDownloadCode?: boolean;
     hasSessionWebhook: boolean;
     sessionWebhookExpiredTime?: number;
     hasRobotCode: boolean;
@@ -66,6 +73,7 @@ export function mapDingTalkRobotMessage(
   const messageId = readMessageId(callback, robotMessage, warnings);
   const senderId = readSenderId(robotMessage, warnings);
   const text = readText(robotMessage);
+  const attachments = readAttachments(robotMessage, warnings);
 
   if (messageId === undefined) {
     warnings.push({
@@ -83,18 +91,6 @@ export function mapDingTalkRobotMessage(
     });
   }
 
-  if (text === undefined) {
-    return failure(
-      "DINGTALK_TEXT_MISSING",
-      "DingTalk callback is not a supported text message or is missing text content.",
-      {
-        callback,
-        warnings,
-        field: "text.content",
-      },
-    );
-  }
-
   const conversationType = normalizeConversationType(robotMessage.conversationType, warnings);
   const replyContext = createReplyContext(callback, robotMessage, messageId, senderId.value);
   const message: IncomingMessage = {
@@ -102,6 +98,7 @@ export function mapDingTalkRobotMessage(
     text,
     senderId: senderId.value,
     conversationType,
+    ...(attachments.length > 0 ? { attachments } : {}),
     raw: {
       callback,
       message: robotMessage,
@@ -137,6 +134,7 @@ export function createDingTalkCallbackLogSample(
   const sender = readSenderId(robotMessage, []);
   const normalizedConversationType = normalizeConversationType(robotMessage.conversationType, []);
   const textContent = robotMessage.text?.content;
+  const attachments = readAttachments(robotMessage, []);
 
   return {
     type: callback.type,
@@ -152,6 +150,10 @@ export function createDingTalkCallbackLogSample(
       normalizedConversationType,
       msgtype: robotMessage.msgtype,
       textLength: typeof textContent === "string" ? textContent.length : undefined,
+      attachmentCount: attachments.length,
+      hasAttachmentDownloadCode: attachments.some((attachment) =>
+        isNonEmptyString(attachment.downloadCode),
+      ),
       hasSessionWebhook: isNonEmptyString(robotMessage.sessionWebhook),
       sessionWebhookExpiredTime: robotMessage.sessionWebhookExpiredTime,
       hasRobotCode: isNonEmptyString(robotMessage.robotCode),
@@ -229,13 +231,119 @@ function readSenderId(
   return {};
 }
 
-function readText(robotMessage: DingTalkRobotMessagePayload): string | undefined {
-  if (robotMessage.msgtype !== undefined && robotMessage.msgtype !== "text") {
-    return undefined;
+function readText(robotMessage: DingTalkRobotMessagePayload): string {
+  const text = robotMessage.text?.content;
+  return typeof text === "string" ? text : "";
+}
+
+function readAttachments(
+  robotMessage: DingTalkRobotMessagePayload,
+  warnings: DingTalkMessageMappingWarning[],
+): IncomingMessageAttachment[] {
+  const messageType = normalizeMessageType(robotMessage.msgtype);
+
+  if (messageType === "image" || messageType === "picture") {
+    return [readAttachment(robotMessage, "image", ["image", "content"], warnings)];
   }
 
-  const text = robotMessage.text?.content;
-  return typeof text === "string" ? text : undefined;
+  if (messageType === "file") {
+    return [readAttachment(robotMessage, "file", ["file", "content"], warnings)];
+  }
+
+  if (messageType === undefined || messageType === "text") {
+    return [];
+  }
+
+  warnings.push({
+    code: "DINGTALK_MESSAGE_TYPE_UNSUPPORTED",
+    message: `DingTalk robot message type is not supported yet: ${messageType}`,
+    field: "msgtype",
+  });
+  return [];
+}
+
+function readAttachment(
+  robotMessage: DingTalkRobotMessagePayload,
+  type: IncomingMessageAttachmentType,
+  payloadKeys: readonly string[],
+  warnings: DingTalkMessageMappingWarning[],
+): IncomingMessageAttachment {
+  const payload = readAttachmentPayload(robotMessage, payloadKeys);
+  const downloadCode =
+    readOptionalString(payload.downloadCode) ??
+    readOptionalString(payload.download_code) ??
+    readOptionalString(robotMessage.downloadCode);
+  const filename =
+    readOptionalString(payload.filename) ??
+    readOptionalString(payload.fileName) ??
+    readOptionalString(payload.name) ??
+    readOptionalString(robotMessage.filename) ??
+    readOptionalString(robotMessage.fileName);
+  const mime =
+    readOptionalString(payload.mime) ??
+    readOptionalString(payload.mimeType) ??
+    readOptionalString(payload.contentType) ??
+    readOptionalString(robotMessage.mime) ??
+    readOptionalString(robotMessage.mimeType) ??
+    readOptionalString(robotMessage.contentType);
+  const size =
+    readOptionalPositiveNumber(payload.size) ??
+    readOptionalPositiveNumber(payload.fileSize) ??
+    readOptionalPositiveNumber(payload.sizeBytes) ??
+    readOptionalPositiveNumber(robotMessage.size) ??
+    readOptionalPositiveNumber(robotMessage.fileSize);
+
+  if (downloadCode === undefined) {
+    warnings.push({
+      code: "DINGTALK_ATTACHMENT_DOWNLOAD_CODE_MISSING",
+      message: "DingTalk attachment message is missing downloadCode.",
+      field: `${type}.downloadCode`,
+    });
+  }
+
+  return {
+    type,
+    ...(filename !== undefined ? { filename } : {}),
+    ...(mime !== undefined ? { mime } : {}),
+    ...(downloadCode !== undefined ? { downloadCode } : {}),
+    ...(size !== undefined ? { size } : {}),
+  };
+}
+
+function readAttachmentPayload(
+  robotMessage: DingTalkRobotMessagePayload,
+  payloadKeys: readonly string[],
+): Record<string, unknown> {
+  for (const key of payloadKeys) {
+    const value = robotMessage[key];
+
+    if (isRecord(value)) {
+      return value;
+    }
+  }
+
+  return robotMessage;
+}
+
+function normalizeMessageType(messageType: string | undefined): string | undefined {
+  const normalized = messageType?.trim().toLowerCase();
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
+}
+
+function readOptionalPositiveNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeConversationType(

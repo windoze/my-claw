@@ -10,8 +10,18 @@ import { createIncomingMessageHandler, type IncomingMessageHandler } from "../ap
 import { BackendRegistry } from "../backend/BackendRegistry.js";
 import type { AgentEvent } from "../backend/types.js";
 import { CommandRouter } from "../commands/CommandRouter.js";
-import { DEFAULT_MAX_DOWNLOAD_FILE_BYTES, type AppConfig } from "../config/types.js";
-import type { ConversationType, IncomingMessage } from "../messages/types.js";
+import {
+  DEFAULT_ALLOWED_ATTACHMENT_MIME_TYPES,
+  DEFAULT_ATTACHMENT_TEMP_DIR,
+  DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
+  DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+  type AppConfig,
+} from "../config/types.js";
+import type {
+  ConversationType,
+  IncomingMessage,
+  IncomingMessageAttachment,
+} from "../messages/types.js";
 import { OutputRenderer } from "../output/OutputRenderer.js";
 import type { ReplySink } from "../output/types.js";
 import { FileService } from "../files/FileService.js";
@@ -61,6 +71,7 @@ export interface RunFakeMessageOptions {
   messageId?: string;
   senderId?: string;
   conversationType?: ConversationType;
+  attachments?: readonly IncomingMessageAttachment[];
 }
 
 /** Result of routing one fake message. */
@@ -226,6 +237,9 @@ function createFakeConfig(
       allowedRootDirs: [...allowedRootDirs],
       downloadAllowedDirs: [...allowedRootDirs],
       maxDownloadFileBytes: DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+      attachmentTempDir: path.join(cwd, DEFAULT_ATTACHMENT_TEMP_DIR),
+      maxAttachmentFileBytes: DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
+      allowedAttachmentMimeTypes: [...DEFAULT_ALLOWED_ATTACHMENT_MIME_TYPES],
     },
     claudeCode: {
       maxTurns: 1,
@@ -247,6 +261,7 @@ function createIncomingMessage(
     text,
     senderId: options.senderId ?? DEFAULT_SENDER_ID,
     conversationType: options.conversationType ?? "private",
+    ...(options.attachments !== undefined ? { attachments: [...options.attachments] } : {}),
   };
 }
 

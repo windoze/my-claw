@@ -1,12 +1,14 @@
 /** Backend-facing Agent input, session, adapter, and event contracts. */
 
 import type { AgentBackend } from "../config/types.js";
+import type { IncomingMessageAttachment } from "../messages/types.js";
 import type { AgentEnvironment } from "../session/types.js";
 
 /** Prompt input sent to an Agent backend for one inbound message. */
 export interface AgentInput {
   text: string;
   messageId?: string;
+  attachments?: IncomingMessageAttachment[];
 }
 
 /** Runtime handle returned by a backend after opening an Agent environment. */

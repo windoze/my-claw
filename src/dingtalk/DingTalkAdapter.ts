@@ -181,6 +181,7 @@ export class DingTalkAdapter {
       senderId: mapped.message.senderId,
       conversationType: mapped.message.conversationType,
       textLength: mapped.message.text.length,
+      attachmentCount: mapped.message.attachments?.length ?? 0,
       hasReplyContext: mapped.message.replyContext !== undefined,
     });
 

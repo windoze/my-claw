@@ -11,6 +11,7 @@ import {
 import type { AgentEnvironment } from "../../session/types.js";
 import { UserFacingError } from "../../utils/errors.js";
 import { createLogger, type Logger } from "../../utils/logger.js";
+import { formatAgentInputPrompt } from "../formatAgentInput.js";
 import type { AgentEvent, AgentInput, BackendAdapter, BackendSession } from "../types.js";
 import {
   createOpenCodeEventMappingState,
@@ -363,7 +364,7 @@ export class OpenCodeAdapter implements BackendAdapter {
   ): NonNullable<SessionPromptAsyncData["body"]> {
     const environment = this.sessionEnvironments.get(session);
     const body: NonNullable<SessionPromptAsyncData["body"]> = {
-      parts: [{ type: "text", text: input.text }],
+      parts: [{ type: "text", text: formatAgentInputPrompt(input) }],
     };
 
     if (environment?.agent !== undefined) {

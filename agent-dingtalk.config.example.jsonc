@@ -25,7 +25,20 @@
   "security": {
     "allowedRootDirs": ["."],
     "downloadAllowedDirs": ["."],
-    "maxDownloadFileBytes": 20971520
+    "maxDownloadFileBytes": 20971520,
+    "attachmentTempDir": ".agent-dingtalk-tmp",
+    "maxAttachmentFileBytes": 20971520,
+    "allowedAttachmentMimeTypes": [
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/json",
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp"
+    ]
   },
   "claudeCode": {
     "permissionMode": "acceptEdits",

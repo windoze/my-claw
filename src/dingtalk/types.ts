@@ -50,8 +50,11 @@ export type DingTalkReplySinkFactory = (context: DingTalkReplyContext) => ReplyS
 
 /** Parsed DingTalk robot message payload with SDK-version-tolerant extra fields. */
 export interface DingTalkRobotMessagePayload {
+  content?: unknown;
   conversationId?: string;
   conversationType?: string;
+  file?: unknown;
+  image?: unknown;
   msgId?: string;
   msgtype?: string;
   robotCode?: string;

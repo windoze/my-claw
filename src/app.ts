@@ -11,8 +11,14 @@ import {
 import { CommandRouter } from "./commands/index.js";
 import { loadConfig, type LoadConfigOptions } from "./config/index.js";
 import type { AppConfig } from "./config/types.js";
-import { DingTalkAdapter, type DingTalkStreamClientFactory } from "./dingtalk/index.js";
-import { FileService } from "./files/index.js";
+import {
+  createDingTalkAttachmentResolver,
+  DingTalkAdapter,
+  DingTalkMediaClient,
+  type DingTalkAttachmentResolver,
+  type DingTalkStreamClientFactory,
+} from "./dingtalk/index.js";
+import { FileService, TempFileStore } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import { OutputRenderer } from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
@@ -41,6 +47,7 @@ export interface HandleIncomingMessageOptions {
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
   securityGate?: SecurityGate;
+  attachmentResolver?: DingTalkAttachmentResolver;
   logger?: Logger;
   genericErrorMessage?: string;
 }
@@ -59,6 +66,7 @@ export interface AppRuntime {
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
   fileService: FileService;
+  tempFileStore: TempFileStore;
   commandRouter: CommandRouter;
   securityGate: SecurityGate;
   dingtalkAdapter: DingTalkAdapter;
@@ -104,10 +112,25 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     maxFileBytes: config.security.maxDownloadFileBytes,
     logger: createLogger("files"),
   });
+  const tempFileStore = new TempFileStore({
+    rootDir: config.security.attachmentTempDir,
+    maxFileBytes: config.security.maxAttachmentFileBytes,
+    allowedMimeTypes: config.security.allowedAttachmentMimeTypes,
+    logger: createLogger("files:temp"),
+  });
+  await tempFileStore.start();
   const commandRouter = new CommandRouter({
     sessionManager,
     fileService,
     logger: createLogger("commands"),
+  });
+  const attachmentResolver = createDingTalkAttachmentResolver({
+    mediaClient: new DingTalkMediaClient({
+      config: config.dingtalk,
+      logger: createLogger("dingtalk:media"),
+    }),
+    tempFileStore,
+    logger: createLogger("dingtalk:attachments"),
   });
   const securityGate = new SecurityGate({
     config: config.dingtalk,
@@ -119,6 +142,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     backendRegistry,
     outputRenderer,
     securityGate,
+    attachmentResolver,
     logger: createLogger("messages"),
   });
   const dingtalkAdapter = new DingTalkAdapter({
@@ -131,6 +155,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     dingtalkAdapter,
     sessionManager,
     openCodeAdapter,
+    tempFileStore,
     logger: createLogger("shutdown"),
   });
 
@@ -145,6 +170,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     backendRegistry,
     outputRenderer,
     fileService,
+    tempFileStore,
     commandRouter,
     securityGate,
     dingtalkAdapter,
@@ -168,6 +194,7 @@ interface AppRuntimeCloseOptions {
   dingtalkAdapter: DingTalkAdapter;
   sessionManager: SessionManager;
   openCodeAdapter: OpenCodeAdapter;
+  tempFileStore: TempFileStore;
   logger: Logger;
 }
 
@@ -197,6 +224,12 @@ function createAppRuntimeClose(options: AppRuntimeCloseOptions): () => Promise<v
       await options.openCodeAdapter.dispose();
     } catch (error: unknown) {
       options.logger.error("OpenCode backend cleanup failed during shutdown.", { error });
+    }
+
+    try {
+      options.tempFileStore.close();
+    } catch (error: unknown) {
+      options.logger.error("Attachment temp store cleanup failed during shutdown.", { error });
     }
   };
 }
@@ -309,7 +342,20 @@ export async function handleIncomingMessage(
     return { authorized: true, handledByCommand: true, backendEvents: [] };
   }
 
-  return handleNormalMessage(message, replySink, options);
+  const resolvedMessage = await resolveIncomingAttachments(message, options);
+  return handleNormalMessage(resolvedMessage, replySink, options);
+}
+
+/** Downloads authorized attachment metadata to local temp files before routing. */
+async function resolveIncomingAttachments(
+  message: IncomingMessage,
+  options: HandleIncomingMessageOptions,
+): Promise<IncomingMessage> {
+  if (options.attachmentResolver === undefined) {
+    return message;
+  }
+
+  return options.attachmentResolver(message);
 }
 
 /** Enforces optional security before any command or backend side effect can run. */
@@ -366,7 +412,11 @@ async function handleNormalMessage(
       close: () => activeBackend.close(activeSession),
     });
     events = await collectAgentEvents(
-      backend.send(session, { text: message.text, messageId: message.id }),
+      backend.send(session, {
+        text: message.text,
+        messageId: message.id,
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      }),
     );
     await saveTerminalSessionId(events, environment, options.sessionManager);
     await options.outputRenderer.render(events, replySink);

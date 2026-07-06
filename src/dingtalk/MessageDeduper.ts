@@ -175,6 +175,7 @@ export class MessageDeduper {
       senderId: message.senderId,
       conversationType: message.conversationType,
       textLength: message.text.length,
+      attachmentCount: message.attachments?.length ?? 0,
       weakHash: dedupeKey.hash,
       windowStart: dedupeKey.windowStart?.toISOString(),
       ttlMs: this.ttlMs,
@@ -193,8 +194,21 @@ function hashWeakMessageIdentity(message: IncomingMessage): string {
     .update(message.conversationType)
     .update("\0")
     .update(message.text)
+    .update("\0")
+    .update(JSON.stringify(summarizeAttachments(message)))
     .digest("hex")
     .slice(0, 16);
+}
+
+function summarizeAttachments(message: IncomingMessage): unknown[] {
+  return (message.attachments ?? []).map((attachment) => ({
+    type: attachment.type,
+    filename: attachment.filename,
+    mime: attachment.mime,
+    downloadCode: attachment.downloadCode,
+    localPath: attachment.localPath,
+    size: attachment.size,
+  }));
 }
 
 function normalizeMessageId(messageId: string | undefined): string | undefined {

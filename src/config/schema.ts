@@ -2,7 +2,13 @@
 
 import { z } from "zod";
 
-import { CLAUDE_CODE_PERMISSION_MODES, DEFAULT_MAX_DOWNLOAD_FILE_BYTES } from "./types.js";
+import {
+  CLAUDE_CODE_PERMISSION_MODES,
+  DEFAULT_ALLOWED_ATTACHMENT_MIME_TYPES,
+  DEFAULT_ATTACHMENT_TEMP_DIR,
+  DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
+  DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+} from "./types.js";
 
 /** Shared non-empty string rule for required configuration text fields. */
 const nonEmptyStringSchema = z.string().min(1, "must not be empty");
@@ -54,11 +60,24 @@ export const securityConfigSchema = z
       .min(1, "must contain at least one allowed download directory")
       .optional(),
     maxDownloadFileBytes: z.number().int().positive().default(DEFAULT_MAX_DOWNLOAD_FILE_BYTES),
+    attachmentTempDir: nonEmptyStringSchema.default(DEFAULT_ATTACHMENT_TEMP_DIR),
+    maxAttachmentFileBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_MAX_ATTACHMENT_FILE_BYTES),
+    allowedAttachmentMimeTypes: z
+      .array(nonEmptyStringSchema)
+      .min(1, "must contain at least one allowed attachment MIME type")
+      .default([...DEFAULT_ALLOWED_ATTACHMENT_MIME_TYPES]),
   })
   .strict()
   .transform((security) => ({
     ...security,
     downloadAllowedDirs: security.downloadAllowedDirs ?? security.allowedRootDirs,
+    allowedAttachmentMimeTypes: security.allowedAttachmentMimeTypes.map((mime) =>
+      mime.trim().toLowerCase(),
+    ),
   }));
 
 /** Validates Claude Code backend behavior defaults. */

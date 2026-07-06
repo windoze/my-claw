@@ -22,6 +22,25 @@ export type OutputMode = "markdown";
 /** Default per-file download limit used when security.maxDownloadFileBytes is omitted. */
 export const DEFAULT_MAX_DOWNLOAD_FILE_BYTES = 20 * 1024 * 1024;
 
+/** Default per-attachment input limit used when security.maxAttachmentFileBytes is omitted. */
+export const DEFAULT_MAX_ATTACHMENT_FILE_BYTES = 20 * 1024 * 1024;
+
+/** Default controlled directory for temporary user attachments. */
+export const DEFAULT_ATTACHMENT_TEMP_DIR = ".agent-dingtalk-tmp";
+
+/** MIME types accepted for user-provided attachment input by default. */
+export const DEFAULT_ALLOWED_ATTACHMENT_MIME_TYPES = [
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+] as const;
+
 /** Agent execution environment shared by the default context and named projects. */
 export interface AgentEnvironmentConfig {
   backend: AgentBackend;
@@ -49,6 +68,9 @@ export interface SecurityConfig {
   allowedRootDirs: string[];
   downloadAllowedDirs: string[];
   maxDownloadFileBytes: number;
+  attachmentTempDir: string;
+  maxAttachmentFileBytes: number;
+  allowedAttachmentMimeTypes: string[];
 }
 
 /** Claude Code backend defaults passed to the Claude Agent SDK adapter. */

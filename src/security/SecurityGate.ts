@@ -58,7 +58,7 @@ export class SecurityGate {
       });
     }
 
-    if (message.text.trim().length === 0) {
+    if (message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0) {
       this.logger.warn("Ignored empty DingTalk text message from authorized sender.", {
         messageId: message.id,
         senderId: message.senderId,

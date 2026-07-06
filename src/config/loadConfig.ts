@@ -130,6 +130,7 @@ async function normalizeConfigPaths(config: AppConfig, configPath: string): Prom
     configPath,
     () => pathPolicy.assertAllowedDir(config.defaultEnvironment.cwd, { baseDir: configDir }),
   );
+  const attachmentTempDir = resolveUserPath(config.security.attachmentTempDir, configDir);
 
   return {
     ...config,
@@ -141,6 +142,7 @@ async function normalizeConfigPaths(config: AppConfig, configPath: string): Prom
       ...config.security,
       allowedRootDirs: [...pathPolicy.allowedRootDirs],
       downloadAllowedDirs: [...downloadPathPolicy.allowedRootDirs],
+      attachmentTempDir,
     },
   };
 }

@@ -12,6 +12,7 @@ import type { ClaudeCodeConfig } from "../../config/types.js";
 import type { AgentEnvironment } from "../../session/types.js";
 import { UserFacingError } from "../../utils/errors.js";
 import { createLogger, redactLogString, type Logger } from "../../utils/logger.js";
+import { formatAgentInputPrompt } from "../formatAgentInput.js";
 import type { AgentEvent, AgentInput, BackendAdapter, BackendSession } from "../types.js";
 import type { ClaudeCodeBackendSession } from "./types.js";
 
@@ -124,7 +125,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
     try {
       sdkQuery = this.queryFn({
-        prompt: input.text,
+        prompt: formatAgentInputPrompt(input),
         options: this.buildQueryOptions(session, activeQuery.abortController, resumeSessionId),
       });
       activeQuery.query = sdkQuery;

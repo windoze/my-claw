@@ -452,7 +452,7 @@
 
 完成记录：2026-07-06 完成 `/dl <path>` 本地文件发送：配置新增 `security.downloadAllowedDirs` 和 `security.maxDownloadFileBytes`，未显式配置下载目录时默认复用 `allowedRootDirs`，配置加载会对两类目录分别 `realpath` 归一化；`PathPolicy` 新增普通文件 realpath 校验，`FileService` 支持绝对路径、`~`、以及基于当前环境 `cwd` 的相对路径，拒绝目录、非普通文件、白名单外路径、软链逃逸和超限文件，用户错误回复只显示 basename，并记录包含 senderId、realpath、sizeBytes、time、result 的审计日志。`/dl` 已加入 slash command 解析、命令处理和 fake runtime；`ReplySink` 新增 file 发送能力，fake sink 记录 file 回复；DingTalk reply sink 新增 access token 获取与缓存、媒体上传和 file 消息发送，上传或发送失败会转为明确用户提示。README 和配置样例已更新。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/dl README.md"`、临时 allowlist 下允许文件发送、白名单外文件拒绝、软链指向白名单外拒绝、超大文件拒绝、目录拒绝，以及模拟 reply sink 发送失败时返回 `文件发送失败：README.md。请稍后重试或查看服务日志。`。
 
-## T29 [TODO] 第二阶段实现用户附件输入
+## T29 [DONE] 第二阶段实现用户附件输入
 
 阶段：第二阶段，附件输入。
 
@@ -465,6 +465,8 @@
 实现细节：Claude Code 后端如果支持附件输入则按 SDK 推荐方式传递；如果暂不支持，先把本地路径和文件摘要追加到 prompt；OpenCode 后端同理；任务结束后可以保留短时间用于 agent 读取，再由清理任务删除。
 
 验收：用户发送文本文件后 Agent 能读取或知道本地路径；用户发送图片后 Agent 能看到图片或图片路径；不支持类型有清晰提示；临时目录定期清理，不会无限增长。
+
+完成记录：2026-07-06 完成用户附件输入：`IncomingMessage` 和 `AgentInput` 已扩展 `attachments` 元数据，支持 `type`、`filename`、`mime`、`downloadCode`、`localPath` 和 `size`；`mapDingTalkRobotMessage` 现在识别钉钉 `file` 和 `image`/`picture` 消息，提取 `downloadCode`、文件名、MIME 和大小，不支持的空内容消息仍会由安全门给授权用户返回清晰提示。新增 `security.attachmentTempDir`、`security.maxAttachmentFileBytes` 和 `security.allowedAttachmentMimeTypes` 默认配置，`.agent-dingtalk-tmp/` 已加入 `.gitignore`；新增 `TempFileStore`，将授权后的附件保存到受控临时目录，按大小和 MIME 类型校验，流式写入时继续强制执行大小上限，并通过 TTL 清理定期删除过期文件。新增 `DingTalkMediaClient` 和 attachment resolver，使用钉钉 `messageFiles.download` 接口下载附件；附件下载发生在私聊/用户白名单校验之后、普通 Agent 路由之前，slash command 不会下载未使用附件。Claude Code 和 OpenCode 后端当前均按非原生附件输入路径处理，把附件本地路径、文件名、MIME 和大小追加到 prompt，Fake runtime 可传入本地附件元数据用于本地检查。README 和配置样例已更新。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，以及 focused attachment checks 覆盖文件/图片消息映射、钉钉 token + `messageFiles.download` 请求、文本附件保存并传入后端、prompt 中包含 localPath、不支持 MIME 明确提示、超大附件拒绝和临时目录 TTL 清理。
 
 ## T30 [TODO] 第二阶段实现钉钉卡片或 AI Card 流式输出
 
