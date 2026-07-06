@@ -212,7 +212,7 @@
 
 完成记录：2026-07-06 定义 `BackendSession` 和 `BackendAdapter` 统一后端生命周期接口，固定 `open(environment)`、`send(session, input)`、`stop(session)`、`close(session)`，并要求 `send` 返回 `AsyncIterable<AgentEvent>`；新增 `BackendRegistry` 和 backend 公共导出，支持注册并解析 `claude-code` adapter，未注册或未知 backend 会抛出可直接展示的 `UserFacingError`；更新 FakeBackendAdapter 与 fake-message 本地路由，使普通消息通过 registry 执行 `open -> send` 事件流 -> `close`，继续支持无钉钉、无 Claude Code 的本地集成验证。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，以及 focused registry check 覆盖 `claude-code` adapter 解析和 `opencode` 未支持错误安全展示。
 
-## T14 [TODO] 接入 Claude Code Agent SDK 基础调用
+## T14 [DONE] 接入 Claude Code Agent SDK 基础调用
 
 阶段：第一阶段，Claude Code 后端。
 
@@ -225,6 +225,8 @@
 实现细节：不要在 adapter 内直接发钉钉消息；adapter 只产出 `AgentEvent`；错误要映射为 `AgentEvent.error` 或抛 `UserFacingError`。
 
 验收：用本地脚本调用 `ClaudeCodeAdapter.send`，传入简单问题，能得到 Claude Code 回复；`cwd` 指向不同目录时，Claude Code 能在对应目录工作。
+
+完成记录：2026-07-06 安装 `@anthropic-ai/claude-agent-sdk`，新增 `src/backend/claude/ClaudeCodeAdapter.ts`、`src/backend/claude/types.ts`、`src/backend/claude/index.ts` 和 `npm run claude:prompt` 本地脚本；`ClaudeCodeAdapter` 从 `claudeCode` 配置读取 `allowedTools`、`permissionMode`、`maxTurns`，调用 SDK `query()` 时设置 `cwd`、`agent`、`model`，将流式文本 delta 映射为 `AgentEvent.text`，将 SDK result success 映射为 `AgentEvent.done` 和 sessionId，将 SDK/运行错误映射为 `AgentEvent.error`，并提供基础 stop/close 资源清理；配置校验现在限制 Claude Code permission mode 为 SDK 支持值。已验证 `npm run typecheck`、`npm run build`、配置样例加载、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、`npm run claude:prompt -- --max-turns 1 --cwd . "请只回复：OK"`，以及在临时目录通过 `pwd` 工具确认 `cwd` 生效。
 
 ## T15 [TODO] 实现 Claude Code session 保存和恢复
 

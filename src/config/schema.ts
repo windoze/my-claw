@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 
+import { CLAUDE_CODE_PERMISSION_MODES } from "./types.js";
+
 /** Shared non-empty string rule for required configuration text fields. */
 const nonEmptyStringSchema = z.string().min(1, "must not be empty");
 
@@ -53,7 +55,7 @@ export const securityConfigSchema = z
 /** Validates Claude Code backend behavior defaults. */
 export const claudeCodeConfigSchema = z
   .object({
-    permissionMode: nonEmptyStringSchema.optional(),
+    permissionMode: z.enum(CLAUDE_CODE_PERMISSION_MODES).optional(),
     allowedTools: z.array(nonEmptyStringSchema).optional(),
     maxTurns: z.number().int().positive().default(20),
   })

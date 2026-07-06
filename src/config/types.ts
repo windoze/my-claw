@@ -3,6 +3,19 @@
 /** Backend names accepted by configuration; extend this union when OpenCode is enabled. */
 export type AgentBackend = "claude-code";
 
+/** Claude Code SDK permission modes accepted by configuration. */
+export const CLAUDE_CODE_PERMISSION_MODES = [
+  "default",
+  "acceptEdits",
+  "bypassPermissions",
+  "plan",
+  "dontAsk",
+  "auto",
+] as const;
+
+/** Claude Code SDK permission mode accepted by configuration. */
+export type ClaudeCodePermissionMode = (typeof CLAUDE_CODE_PERMISSION_MODES)[number];
+
 /** Output renderer modes accepted by configuration. */
 export type OutputMode = "markdown";
 
@@ -35,7 +48,7 @@ export interface SecurityConfig {
 
 /** Claude Code backend defaults passed to the Claude Agent SDK adapter. */
 export interface ClaudeCodeConfig {
-  permissionMode?: string;
+  permissionMode?: ClaudeCodePermissionMode;
   allowedTools?: string[];
   maxTurns: number;
 }
