@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AgentEvent } from "../backend/types.js";
+import { BackendRegistry } from "../backend/BackendRegistry.js";
+import type { AgentEvent, BackendSession } from "../backend/types.js";
 import { CommandRouter } from "../commands/CommandRouter.js";
 import type { AppConfig } from "../config/types.js";
 import type { ConversationType, IncomingMessage } from "../messages/types.js";
@@ -39,6 +40,7 @@ export interface FakeMessageRuntime {
   sessionManager: SessionManager;
   stateStore: StateStore;
   replySink: FakeReplySink;
+  backendRegistry: BackendRegistry;
   backend: FakeBackendAdapter;
   dispose(): Promise<void>;
 }
@@ -104,6 +106,7 @@ export async function createFakeMessageRuntime(
   });
   const replySink = options.replySink ?? new FakeReplySink();
   const backend = options.backend ?? new FakeBackendAdapter();
+  const backendRegistry = new BackendRegistry([["claude-code", backend]]);
 
   return {
     config,
@@ -111,6 +114,7 @@ export async function createFakeMessageRuntime(
     sessionManager,
     stateStore,
     replySink,
+    backendRegistry,
     backend,
     dispose: async () => {
       if (tempState !== null) {
@@ -228,20 +232,39 @@ async function routeToFakeBackend(
   }
 
   const environment = await runtime.sessionManager.getCurrentEnvironment();
+  const backend = runtime.backendRegistry.get(environment);
   await runtime.sessionManager.startTask({ messageId: message.id });
+  let session: BackendSession | null = null;
 
   try {
-    const events = await runtime.backend.send(
-      { text: message.text, messageId: message.id },
-      environment,
+    session = await backend.open(environment);
+    const events = await collectAgentEvents(
+      backend.send(session, { text: message.text, messageId: message.id }),
     );
     await renderFakeBackendEvents(events, runtime.replySink);
     await saveDoneSessionId(events, environment, runtime.sessionManager);
 
     return events;
   } finally {
-    await runtime.sessionManager.markIdle();
+    try {
+      if (session !== null) {
+        await backend.close(session);
+      }
+    } finally {
+      await runtime.sessionManager.markIdle();
+    }
   }
+}
+
+/** Collects an Agent event stream for the first-stage fake renderer. */
+async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
+  const collectedEvents: AgentEvent[] = [];
+
+  for await (const event of events) {
+    collectedEvents.push(event);
+  }
+
+  return collectedEvents;
 }
 
 /** Persists the fake session id emitted by a done event. */

@@ -15,19 +15,17 @@ I will maintain this file as a concise progress log and actionable plan. I will 
 
 ## Progress
 
-- Existing progress log showed T11 as completed in the previous commit.
-- Selected first incomplete task: `T12 [TODO] 增加 FakeReplySink 和 FakeBackend 便于本地集成测试`.
-- T12 implementation plan:
-  1. Inspect command routing, backend event types, session manager construction, config/state helpers, and package scripts.
-  2. Add `FakeReplySink` that records `sendText` and `sendMarkdown` calls.
-  3. Add `FakeBackendAdapter` whose `send` method returns deterministic `text` and `done` events.
-  4. Add a local fake-message runner or equivalent script that builds an `IncomingMessage`, runs `CommandRouter`, and routes non-command messages to the fake backend.
-  5. Add or update scripts so the fake path can be exercised without DingTalk or Claude Code.
-  6. Run formatting, typecheck/build, and focused fake-route validation.
-  7. Mark T12 `[DONE]` with completion notes, commit the task changes, and stop.
-- Inspected `CommandRouter`, command handlers, backend/message/reply/session types, `SessionManager`, `StateStore`, and `PathPolicy`.
-- Design decision: implement fake testing as reusable exported classes plus a `runFakeMessage` helper/CLI using the real `CommandRouter` and `SessionManager`, with ephemeral temp state by default so it requires neither DingTalk nor Claude Code.
-- Implemented `FakeReplySink`, `FakeBackendAdapter`, `runFakeMessage` helper/CLI, testing exports, and the `npm run fake:message` script.
-- Validation passed: `npm run typecheck`, `npm run build`, and `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`.
-- Marked `T12` as `[DONE]` in `TODO.md` with the completion record.
-- Next step: review final diff, commit T12 changes, and stop.
+- Current invocation selected first incomplete task: `T13 [TODO] 定义 BackendAdapter 与 BackendRegistry`.
+- Latest commit already completed T12, and the worktree started clean.
+- T13 implementation plan:
+  1. Inspect current backend type definitions, fake backend implementation, session environment types, command/router exports, and package scripts.
+  2. Extend `src/backend/types.ts` with the stable `BackendAdapter` and `BackendSession` contracts while preserving the existing `AgentEvent` stream shape.
+  3. Add `src/backend/BackendRegistry.ts` with adapter registration and lookup by `AgentEnvironment.backend`, returning a user-facing error for unsupported backends.
+  4. Update backend exports and existing fake/testing code to conform to the new adapter interface.
+  5. Add focused local validation for registering/getting the `claude-code` backend and safe unknown-backend errors, using fake components rather than real Claude Code.
+  6. Run formatting, typecheck/build, and the focused validation.
+  7. Mark T13 `[DONE]` with completion notes, commit all T13-related changes, and stop.
+- Implemented backend contracts in `src/backend/types.ts`, added `BackendRegistry` and `src/backend/index.ts`, and adapted the fake backend/message runner to use `open -> send event stream -> close` through the registry.
+- Validation passed: `npm run typecheck`, `npm run build`, `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`, and a focused `tsx` registry check for `claude-code` resolution plus `opencode` unsupported-backend safe error handling.
+- Marked `T13` as `[DONE]` in `TODO.md` with the completion record.
+- Next step: review final diff, commit T13 changes, and stop.

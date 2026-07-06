@@ -1,9 +1,28 @@
-/** Backend-facing Agent input and event contracts. */
+/** Backend-facing Agent input, session, adapter, and event contracts. */
+
+import type { AgentBackend } from "../config/types.js";
+import type { AgentEnvironment } from "../session/types.js";
 
 /** Prompt input sent to an Agent backend for one inbound message. */
 export interface AgentInput {
   text: string;
   messageId: string;
+}
+
+/** Runtime handle returned by a backend after opening an Agent environment. */
+export interface BackendSession {
+  backend: AgentBackend;
+  cwd: string;
+  sessionId?: string;
+  raw?: unknown;
+}
+
+/** Common interface implemented by Claude Code and future Agent backends. */
+export interface BackendAdapter {
+  open(environment: AgentEnvironment): BackendSession | Promise<BackendSession>;
+  send(session: BackendSession, input: AgentInput): AsyncIterable<AgentEvent>;
+  stop(session: BackendSession): void | Promise<void>;
+  close(session: BackendSession): void | Promise<void>;
 }
 
 /** Incremental text produced by a backend before final completion. */

@@ -196,7 +196,7 @@
 
 完成记录：2026-07-06 新增 `src/testing/FakeReplySink.ts`，按调用顺序记录 `sendText`/`sendMarkdown`，并提供独立 text/Markdown 回复数组；新增 `src/testing/FakeBackendAdapter.ts`，记录发送请求并返回固定 `AgentEvent.text` 与 `AgentEvent.done`；新增 `src/testing/runFakeMessage.ts` 和 `src/testing/index.ts`，可构造 fake `IncomingMessage`，通过真实 `CommandRouter`、`SessionManager` 和普通消息 fake 后端路径执行本地验证；新增 `npm run fake:message` 开发脚本，默认或显式消息均可在无钉钉、无 Claude Code 情况下验证 `/state`、`/cc`、普通消息和 `/close` 完整路径。已验证 `npm run typecheck`、`npm run build` 和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 通过。
 
-## T13 [TODO] 定义 BackendAdapter 与 BackendRegistry
+## T13 [DONE] 定义 BackendAdapter 与 BackendRegistry
 
 阶段：第一阶段，后端抽象。
 
@@ -209,6 +209,8 @@
 实现细节：`send` 必须返回 `AsyncIterable<AgentEvent>`，即使第一阶段内部聚合输出，也要保持事件流接口。
 
 验收：`BackendRegistry` 能注册和获取 `claude-code` adapter；未知 backend 错误可被用户安全展示。
+
+完成记录：2026-07-06 定义 `BackendSession` 和 `BackendAdapter` 统一后端生命周期接口，固定 `open(environment)`、`send(session, input)`、`stop(session)`、`close(session)`，并要求 `send` 返回 `AsyncIterable<AgentEvent>`；新增 `BackendRegistry` 和 backend 公共导出，支持注册并解析 `claude-code` adapter，未注册或未知 backend 会抛出可直接展示的 `UserFacingError`；更新 FakeBackendAdapter 与 fake-message 本地路由，使普通消息通过 registry 执行 `open -> send` 事件流 -> `close`，继续支持无钉钉、无 Claude Code 的本地集成验证。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，以及 focused registry check 覆盖 `claude-code` adapter 解析和 `opencode` 未支持错误安全展示。
 
 ## T14 [TODO] 接入 Claude Code Agent SDK 基础调用
 
