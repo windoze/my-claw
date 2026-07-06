@@ -52,7 +52,7 @@
 
 完成记录：2026-07-06 实现 `src/config/schema.ts`、`src/config/loadConfig.ts` 和 `src/config/index.ts`，支持默认 `agent-dingtalk.config.jsonc`、`AGENT_DINGTALK_CONFIG` 覆盖、JSONC 解析、Zod 结构校验、字段路径错误、缺失配置复制样例提示，以及 `rejectGroupMessages`、`claudeCode.maxTurns`、`output.maxMessageChars` 默认值；`src/app.ts` 启动时加载合法配置后再输出启动日志。已验证 `npm run typecheck`、`npm run build`、缺失配置、字段类型错误、样例配置加载和默认值省略场景。
 
-## T04 [TODO] 实现路径解析和目录白名单策略
+## T04 [DONE] 实现路径解析和目录白名单策略
 
 阶段：第一阶段，安全基础。
 
@@ -65,6 +65,8 @@
 实现细节：`PathPolicy` 持有规范化后的 `allowedRootDirs`；提供 `assertAllowedDir(dir)`；错误消息区分目录不存在、不是目录、不在白名单内；`defaultEnvironment.cwd` 必须存在且在 `allowedRootDirs` 内。
 
 验收：`~/repo` 能正确展开；不在白名单内的目录被拒绝；指向白名单外的软链目录被拒绝；合法目录通过校验。
+
+完成记录：2026-07-06 实现 `src/utils/path.ts` 和 `src/security/PathPolicy.ts`，统一支持 `~` 展开、相对路径解析、目录 `realpath`、规范化包含关系判断、目录白名单校验，以及不存在、非目录、不在白名单内的明确错误；`loadConfig` 现在支持配置文件路径 `~` 展开，会将 `security.allowedRootDirs` 和 `defaultEnvironment.cwd` 规范化为真实路径，并拒绝不在白名单内的默认目录。已验证 `npm run typecheck`、`npm run build`、`~` 展开、配置文件路径 `~` 展开、相对路径解析、合法目录通过、不在白名单内目录拒绝、缺失目录拒绝、非目录拒绝、软链逃逸拒绝。
 
 ## T05 [TODO] 实现本地状态存储 StateStore
 

@@ -6,6 +6,8 @@ import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { z } from "zod";
 
+import { PathPolicy, PathPolicyError } from "../security/PathPolicy.js";
+import { resolveUserPath } from "../utils/path.js";
 import { appConfigSchema } from "./schema.js";
 import type { AppConfig } from "./types.js";
 
@@ -40,8 +42,9 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<AppCo
   const configPath = resolveConfigPath(options);
   const source = await readConfigSource(configPath);
   const parsedConfig = parseJsoncConfig(source, configPath);
+  const validatedConfig = validateConfig(parsedConfig, configPath);
 
-  return validateConfig(parsedConfig, configPath);
+  return normalizeConfigPaths(validatedConfig, configPath);
 }
 
 /** Resolves the effective config path from explicit options, environment, or defaults. */
@@ -51,7 +54,7 @@ export function resolveConfigPath(options: LoadConfigOptions = {}): string {
   const configuredPath =
     options.configPath ?? env[CONFIG_ENV_VAR] ?? DEFAULT_CONFIG_FILE_NAME;
 
-  return path.resolve(cwd, configuredPath);
+  return resolveUserPath(configuredPath, cwd);
 }
 
 /** Reads the config file and turns missing-file errors into actionable guidance. */
@@ -111,6 +114,57 @@ function validateConfig(parsedConfig: unknown, configPath: string): AppConfig {
   return config;
 }
 
+/** Normalizes configured directories and verifies the default cwd is allowlisted. */
+async function normalizeConfigPaths(config: AppConfig, configPath: string): Promise<AppConfig> {
+  const configDir = path.dirname(configPath);
+  const pathPolicy = await mapPathPolicyError(
+    "security.allowedRootDirs",
+    configPath,
+    () => PathPolicy.create(config.security.allowedRootDirs, { baseDir: configDir }),
+  );
+  const defaultCwd = await mapPathPolicyError(
+    "defaultEnvironment.cwd",
+    configPath,
+    () => pathPolicy.assertAllowedDir(config.defaultEnvironment.cwd, { baseDir: configDir }),
+  );
+
+  return {
+    ...config,
+    defaultEnvironment: {
+      ...config.defaultEnvironment,
+      cwd: defaultCwd,
+    },
+    security: {
+      ...config.security,
+      allowedRootDirs: [...pathPolicy.allowedRootDirs],
+    },
+  };
+}
+
+/** Adds config-file context to path policy errors without hiding the precise reason. */
+async function mapPathPolicyError<T>(
+  fieldPath: string,
+  configPath: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error: unknown) {
+    if (error instanceof PathPolicyError) {
+      throw new ConfigLoadError(
+        [
+          `Configuration path validation failed for file: ${configPath}`,
+          ...formatConfigPathPolicyIssue(fieldPath, error),
+        ].join("\n"),
+        configPath,
+        error,
+      );
+    }
+
+    throw error;
+  }
+}
+
 /** Formats JSONC parse errors with one-based line and column numbers. */
 function formatParseError(source: string, parseError: ParseError): string {
   const location = getLineColumn(source, parseError.offset);
@@ -125,6 +179,19 @@ function formatValidationIssues(error: z.ZodError): string[] {
     const fieldPath = formatIssuePath(issue.path);
     return `- ${fieldPath}: ${issue.message}`;
   });
+}
+
+/** Formats a path policy error under a config field path, preserving multiline details. */
+function formatConfigPathPolicyIssue(
+  fieldPath: string,
+  error: PathPolicyError,
+): string[] {
+  const [firstLine = error.message, ...detailLines] = error.message.split("\n");
+
+  return [
+    `- ${fieldPath}: ${firstLine}`,
+    ...detailLines.map((detailLine) => `  ${detailLine}`),
+  ];
 }
 
 /** Builds a dot-and-index field path from a Zod issue path. */
