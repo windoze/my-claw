@@ -132,7 +132,7 @@
 
 完成记录：2026-07-06 新增 `src/commands/types.ts` 和 `src/commands/parseCommand.ts`，定义第一阶段 slash command 类型、已知命令集合、未知命令和无效命令解析结果；实现 `parseCommand()`，只识别以 `/` 开头的非空文本，命令名按第一个空白切分并转小写，保留 `argsText`，识别 `/cc`、`/close`、`/state`、`/stop`、`/oc`，并把未知 `/abc` 归类为 `unknown`；实现基础参数切分，支持引号包裹的空格路径并对未闭合引号返回明确错误。同时修复 `src/utils/logger.ts` 中阻塞编译的 Bearer token 脱敏字符串语法错误。已验证 `npm run typecheck`、`npm run build`，以及 `/state`、`/cc ~/repos/foo`、普通文本、未知 `/abc`、引号空格路径和未闭合引号场景。
 
-## T09 [TODO] 实现 CommandRouter 框架
+## T09 [DONE] 实现 CommandRouter 框架
 
 阶段：第一阶段，命令基础。
 
@@ -145,6 +145,8 @@
 实现细节：先实现 `/state` 占位、`/oc` 占位、未知命令回复；`/cc`、`/close`、`/stop` 具体逻辑可以调用后续 `SessionManager`。
 
 验收：通过 fake message 和 fake reply 可以验证每个命令会进入对应 handler；未知命令不会触发 Agent 后端。
+
+完成记录：2026-07-06 新增 `src/commands/CommandRouter.ts`、`src/commands/handlers.ts` 和 `src/commands/index.ts`，实现 `CommandRouter.handle(message, replySink)` 统一调用 `parseCommand`、对非命令返回 `false`、对已处理命令返回 `true`，并分发 `/state`、`/oc`、`/cc`、`/close`、`/stop`、未知命令和非法命令；默认 handler 提供 `/state`、`/oc` 和 SessionManager 相关命令占位回复，未知命令不会落入普通 Agent 消息；handler 抛出 `UserFacingError` 时回复 `safeMessage`，其他异常记录详细日志并回复通用错误。已验证 `npm run typecheck`、`npm run build`，以及 fake message/fake reply 覆盖非命令、`/state`、`/oc`、未知命令、非法命令、所有已知命令分发、`UserFacingError.safeMessage` 和通用异常日志路径。
 
 ## T10 [TODO] 实现 SessionManager 的环境选择和状态机
 
