@@ -133,6 +133,7 @@ export interface StartTaskOptions {
 export interface CurrentTaskControl {
   session: BackendSession;
   stop(): Promise<void> | void;
+  close?(): Promise<void> | void;
 }
 
 /** Builds a SessionManager, creating the path policy from validated config when omitted. */
@@ -299,6 +300,21 @@ export class SessionManager {
     }
 
     this.currentTaskControl = null;
+  }
+
+  /** Best-effort cleanup for the active backend task during process shutdown. */
+  public async closeCurrentTaskControl(): Promise<void> {
+    const control = this.currentTaskControl;
+
+    try {
+      await control?.close?.();
+    } finally {
+      if (control !== null) {
+        this.clearCurrentTaskControl(control.session);
+      }
+
+      await this.markIdle();
+    }
   }
 
   /** Requests interruption of the active backend task and moves runtime state to stopping. */

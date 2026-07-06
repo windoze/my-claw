@@ -8,20 +8,22 @@ import {
   type BackendSession,
 } from "./backend/index.js";
 import { CommandRouter } from "./commands/index.js";
-import { loadConfig } from "./config/index.js";
+import { loadConfig, type LoadConfigOptions } from "./config/index.js";
 import type { AppConfig } from "./config/types.js";
+import { DingTalkAdapter, type DingTalkStreamClientFactory } from "./dingtalk/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import { OutputRenderer } from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
 import { SecurityGate, type SecurityGateDecision } from "./security/index.js";
 import { createSessionManager, type SessionManager } from "./session/index.js";
 import { StateStore } from "./state/index.js";
-import { createLogger, UserFacingError, type Logger } from "./utils/index.js";
+import { AppError, createLogger, UserFacingError, type Logger } from "./utils/index.js";
 
 const logger = createLogger("app");
 const NORMAL_MESSAGE_BUSY_MESSAGE = "Agent 正在运行，发送 /stop 可中断当前任务。";
 const NORMAL_MESSAGE_STOPPING_MESSAGE = "当前任务正在中断，请稍候。";
 const GENERIC_AGENT_ERROR_MESSAGE = "Agent 执行失败，请稍后重试或查看服务日志。";
+const GENERIC_MESSAGE_ERROR_MESSAGE = "消息处理失败，请稍后重试或查看服务日志。";
 
 /** Result returned after one incoming message has been routed. */
 export interface HandleIncomingMessageResult {
@@ -56,13 +58,25 @@ export interface AppRuntime {
   outputRenderer: OutputRenderer;
   commandRouter: CommandRouter;
   securityGate: SecurityGate;
+  dingtalkAdapter: DingTalkAdapter;
   handleIncomingMessage: IncomingMessageHandler;
+  close(): Promise<void>;
+}
+
+/** Optional startup overrides used by focused checks and embedders. */
+export interface StartAppOptions extends LoadConfigOptions {
+  statePath?: string;
+  dingtalkClientFactory?: DingTalkStreamClientFactory;
 }
 
 /** Starts the gateway after loading and validating runtime configuration. */
-export async function startApp(): Promise<AppRuntime> {
-  const config = await loadConfig();
-  const stateStore = new StateStore({ logger: createLogger("state") });
+export async function startApp(options: StartAppOptions = {}): Promise<AppRuntime> {
+  const config = await loadConfig(options);
+  const stateStore = new StateStore({
+    statePath: options.statePath,
+    cwd: options.cwd,
+    logger: createLogger("state"),
+  });
   await stateStore.load();
   const sessionManager = await createSessionManager({ config, stateStore });
   const backendRegistry = new BackendRegistry([
@@ -94,12 +108,23 @@ export async function startApp(): Promise<AppRuntime> {
     securityGate,
     logger: createLogger("messages"),
   });
+  const dingtalkAdapter = new DingTalkAdapter({
+    config: config.dingtalk,
+    handler: handleIncomingMessage,
+    clientFactory: options.dingtalkClientFactory,
+    logger: createLogger("dingtalk"),
+  });
+  const close = createAppRuntimeClose({
+    dingtalkAdapter,
+    sessionManager,
+    logger: createLogger("shutdown"),
+  });
 
   logger.info(
     `DingTalk Agent gateway starting with ${config.defaultEnvironment.backend} backend.`,
   );
 
-  return {
+  const runtime: AppRuntime = {
     config,
     stateStore,
     sessionManager,
@@ -107,7 +132,50 @@ export async function startApp(): Promise<AppRuntime> {
     outputRenderer,
     commandRouter,
     securityGate,
+    dingtalkAdapter,
     handleIncomingMessage,
+    close,
+  };
+
+  try {
+    await dingtalkAdapter.start();
+  } catch (error: unknown) {
+    await close();
+    throw error;
+  }
+
+  logger.info("DingTalk Agent gateway started.");
+
+  return runtime;
+}
+
+interface AppRuntimeCloseOptions {
+  dingtalkAdapter: DingTalkAdapter;
+  sessionManager: SessionManager;
+  logger: Logger;
+}
+
+/** Creates an idempotent shutdown hook for stream and active backend resources. */
+function createAppRuntimeClose(options: AppRuntimeCloseOptions): () => Promise<void> {
+  let closed = false;
+
+  return async (): Promise<void> => {
+    if (closed) {
+      return;
+    }
+
+    closed = true;
+    try {
+      options.dingtalkAdapter.close();
+    } catch (error: unknown) {
+      options.logger.error("DingTalk Stream cleanup failed during shutdown.", { error });
+    }
+
+    try {
+      await options.sessionManager.closeCurrentTaskControl();
+    } catch (error: unknown) {
+      options.logger.error("Active backend task cleanup failed during shutdown.", { error });
+    }
   };
 }
 
@@ -115,7 +183,90 @@ export async function startApp(): Promise<AppRuntime> {
 export function createIncomingMessageHandler(
   options: HandleIncomingMessageOptions,
 ): IncomingMessageHandler {
-  return (message, replySink) => handleIncomingMessage(message, replySink, options);
+  return (message, replySink) => safelyHandleIncomingMessage(message, replySink, options);
+}
+
+/** Wraps every inbound message entrypoint so callback failures never exit the process. */
+async function safelyHandleIncomingMessage(
+  message: IncomingMessage,
+  replySink: ReplySink,
+  options: HandleIncomingMessageOptions,
+): Promise<HandleIncomingMessageResult> {
+  try {
+    return await handleIncomingMessage(message, replySink, options);
+  } catch (error: unknown) {
+    return handleIncomingMessageFailure(error, message, replySink, options);
+  }
+}
+
+/** Converts top-level routing failures into safe replies and detailed logs. */
+async function handleIncomingMessageFailure(
+  error: unknown,
+  message: IncomingMessage,
+  replySink: ReplySink,
+  options: HandleIncomingMessageOptions,
+): Promise<HandleIncomingMessageResult> {
+  const handlerLogger = options.logger ?? createLogger("messages");
+
+  if (isReplySinkError(error)) {
+    handlerLogger.error("Incoming message reply failed.", {
+      error,
+      messageId: message.id,
+      senderId: message.senderId,
+    });
+    return createFailedHandleResult();
+  }
+
+  if (error instanceof UserFacingError) {
+    await sendFailureReply(replySink, error.safeMessage ?? error.message, handlerLogger, message);
+    return createFailedHandleResult();
+  }
+
+  handlerLogger.error("Incoming message handling failed.", {
+    error,
+    messageId: message.id,
+    senderId: message.senderId,
+  });
+  await sendFailureReply(
+    replySink,
+    options.genericErrorMessage ?? GENERIC_MESSAGE_ERROR_MESSAGE,
+    handlerLogger,
+    message,
+  );
+
+  return createFailedHandleResult();
+}
+
+/** Sends an error reply without allowing a failed fallback reply to escape the entrypoint. */
+async function sendFailureReply(
+  replySink: ReplySink,
+  text: string,
+  handlerLogger: Logger,
+  message: IncomingMessage,
+): Promise<void> {
+  try {
+    await replySink.sendText(text);
+  } catch (replyError: unknown) {
+    handlerLogger.error("Failed to send incoming message error reply.", {
+      error: replyError,
+      messageId: message.id,
+      senderId: message.senderId,
+    });
+  }
+}
+
+/** Identifies failures from the DingTalk reply sink so the same failing sink is not retried. */
+function isReplySinkError(error: unknown): boolean {
+  return error instanceof AppError && error.code.startsWith("DINGTALK_REPLY_");
+}
+
+/** Returns the conservative result shape used when routing failed before completion. */
+function createFailedHandleResult(): HandleIncomingMessageResult {
+  return {
+    authorized: true,
+    handledByCommand: false,
+    backendEvents: [],
+  };
 }
 
 /** Routes slash commands or ordinary messages through the current Agent backend. */
@@ -190,6 +341,7 @@ async function handleNormalMessage(
     options.sessionManager.setCurrentTaskControl({
       session: activeSession,
       stop: () => activeBackend.stop(activeSession),
+      close: () => activeBackend.close(activeSession),
     });
     events = await collectAgentEvents(
       backend.send(session, { text: message.text, messageId: message.id }),

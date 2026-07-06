@@ -340,7 +340,7 @@
 
 完成记录：2026-07-06 新增 `src/dingtalk/DingTalkReplySink.ts`，基于钉钉 `sessionWebhook` 实现 `ReplySink.sendText()` 和 `ReplySink.sendMarkdown()`，发送标准 text/markdown 机器人 payload；Markdown 回复会派生钉钉所需 title、规范化换行并补齐未闭合代码块；缺少或过期 `sessionWebhook` 会抛出可记录的 `AppError`，HTTP/钉钉错误会记录状态、错误码和安全摘要且不打印 token。`DingTalkAdapter` 现在默认基于回调上下文创建真实 `DingTalkReplySink`，仍支持注入 fake sink 进行本地验证。已验证 `npm run typecheck`、`npm run build`、focused DingTalk reply sink checks（text/Markdown payload、缺失/过期 webhook、HTTP 失败、日志不泄露 webhook token、adapter 默认 sink 分发）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
-## T22 [TODO] 组装真实 App 启动流程
+## T22 [DONE] 组装真实 App 启动流程
 
 阶段：第一阶段，端到端集成。
 
@@ -353,6 +353,8 @@
 实现细节：所有消息处理入口都要 try/catch；用户可见错误通过 ReplySink 回复；内部错误写日志；状态恢复必须放在 finally 或集中错误处理里。
 
 验收：运行 `npm run dev` 后真实钉钉私聊 `/state` 可用；普通消息可返回 Claude Code 回复；异常不会导致进程退出。
+
+完成记录：2026-07-06 完成真实 App 启动流程组装：`startApp()` 现在加载配置后创建状态存储、SessionManager、BackendRegistry、ClaudeCodeAdapter、OutputRenderer、CommandRouter、SecurityGate 和真实 DingTalkAdapter，注入统一安全的 `handleIncomingMessage`，启动 DingTalk Stream；消息入口增加集中 try/catch，用户可见错误通过 ReplySink 回复、内部错误写日志，ReplySink 失败不会导致进程退出；运行中任务在 finally 中恢复 idle，进程关闭时会尽力断开 DingTalk Stream 并关闭当前后端任务。`src/index.ts` 已安装 SIGINT/SIGTERM/beforeExit 清理钩子。已验证 `npm run typecheck`、`npm run build`、fake message 路由，以及使用临时配置和 fake DingTalk Stream client 覆盖 `startApp()` 注册回调、连接和 `runtime.close()` 断开流程；真实钉钉私聊需部署有效凭证后按验收项执行。
 
 ## T23 [TODO] 增加消息去重和 Stream 重连处理
 

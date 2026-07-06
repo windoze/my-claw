@@ -1,26 +1,21 @@
 # Execution Plan
 
-I will complete exactly the first incomplete task in `TODO.md` and stop after committing it. This file records a concise execution plan and progress notes; it does not include private chain-of-thought.
+I will not include private chain-of-thought here, but this file records the actionable plan, assumptions, and progress for this invocation.
 
-Selected task: `T21 [DONE] 实现钉钉 Text 和 Markdown 回复`.
+## Initial Plan
 
-Step-by-step plan:
 1. Read `TODO.md` to identify the first task whose heading is not prefixed with `[DONE]`.
-2. Check the latest commit message only for directly relevant unfinished work tied to the selected task.
-3. Inspect DingTalk adapter, message/reply context, output sink types, logging, and package scripts.
-4. Implement `DingTalkReplySink` for text and Markdown replies using the SDK reply API or `sessionWebhook`, with safe failure logging and no token leakage.
-5. Wire the sink into `DingTalkAdapter` so authorized private messages can receive `/state` and Agent replies.
-6. Run formatting, linting/typecheck, build, and focused local checks in the required order, fixing or scheduling any unscheduled failures.
-7. Update `TODO.md` by prefixing T21 with `[DONE]` and filling in its completion record.
-8. Commit all changes for T21 with a descriptive message and the required co-author trailer, then stop.
+2. Review only the files and recent commit context needed for that task.
+3. Implement the selected task completely, or add the minimum prerequisite task to `TODO.md` if a concrete blocker makes correct implementation impossible.
+4. Run the required validation in order: formatting, linting, then relevant/full tests as required by the task and repository conventions.
+5. Update `TODO.md` with `[DONE]` and a completion record for the completed task, or record a blocker/prerequisite if completion is impossible.
+6. Update this file at key milestones.
+7. Commit all changes for this invocation with a clear task-specific message and the required co-author trailer.
 
-Progress:
-- Plan refreshed for the current invocation.
-- Identified `T21 [TODO] 实现钉钉 Text 和 Markdown 回复` as the first incomplete task.
-- Latest commit completed T20 and does not identify an unfinished issue blocking T21.
-- Baseline `npm run typecheck` and `npm run build` pass before T21 edits.
-- Implemented `DingTalkReplySink` using `sessionWebhook` for text and Markdown payloads, with Markdown title derivation, code-fence balancing, webhook expiry/missing checks, and safe failure logging.
-- Wired `DingTalkAdapter` to create a real reply sink by default while preserving injected fake sinks for local checks.
-- Focused local checks pass for text/Markdown payloads, missing/expired webhook errors, HTTP failure handling, token-safe logs, and adapter default sink dispatch.
-- Final validation passes: `npm run typecheck`, `npm run build`, and `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`.
-- Marked T21 as `[DONE]` in `TODO.md` with the completion record.
+## Progress
+
+- Created this execution plan before inspecting the task list or running project commands.
+- Identified `T22 [TODO] 组装真实 App 启动流程` as the first incomplete task. Latest commit is `[T21] Implement DingTalk reply sink`, which is directly prior work and does not add a separate unfinished prerequisite.
+- Implemented the T22 wiring path in `src/app.ts` and `src/index.ts`: the runtime now creates the real DingTalk adapter, injects the shared safe incoming-message handler, starts the Stream client, and installs shutdown cleanup for Stream and active backend work.
+- Validated TypeScript build output and exercised `startApp()` with a temporary config plus fake DingTalk Stream client, confirming callback registration, connection, and runtime close/disconnect behavior.
+- Marked T22 `[DONE]` in `TODO.md`. Final validation passed with `npm run typecheck`, `npm run build`, and `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`.
