@@ -36,7 +36,7 @@
 
 完成记录：2026-07-06 新增 `agent-dingtalk.config.example.jsonc`，覆盖钉钉凭证、默认环境、项目样例、安全白名单、Claude Code 设置和输出设置；新增 `src/config/types.ts`，定义配置结构类型且不依赖具体实现模块。已验证配置样例可被 `jsonc-parser` 解析，`npm run typecheck` 和 `npm run build` 通过。
 
-## T03 [TODO] 实现配置加载和 Zod 校验
+## T03 [DONE] 实现配置加载和 Zod 校验
 
 阶段：第一阶段，配置基础。
 
@@ -49,6 +49,8 @@
 实现细节：为 `output.maxMessageChars` 设置合理默认值，例如 `18000`；为 `dingtalk.rejectGroupMessages` 设置默认 `true`；为 `claudeCode.maxTurns` 设置默认值，例如 `20`；禁止 `allowedUserIds` 为空。
 
 验收：缺少配置文件时进程失败并给出可执行提示；配置字段类型错误时给出字段路径；合法配置可以成功加载为 `AppConfig`。
+
+完成记录：2026-07-06 实现 `src/config/schema.ts`、`src/config/loadConfig.ts` 和 `src/config/index.ts`，支持默认 `agent-dingtalk.config.jsonc`、`AGENT_DINGTALK_CONFIG` 覆盖、JSONC 解析、Zod 结构校验、字段路径错误、缺失配置复制样例提示，以及 `rejectGroupMessages`、`claudeCode.maxTurns`、`output.maxMessageChars` 默认值；`src/app.ts` 启动时加载合法配置后再输出启动日志。已验证 `npm run typecheck`、`npm run build`、缺失配置、字段类型错误、样例配置加载和默认值省略场景。
 
 ## T04 [TODO] 实现路径解析和目录白名单策略
 
