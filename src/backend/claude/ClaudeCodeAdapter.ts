@@ -31,6 +31,7 @@ export type ClaudeCodeAdapterErrorCode = "CLAUDE_BACKEND_MISMATCH" | "CLAUDE_TAS
 interface ActiveClaudeQuery {
   abortController: AbortController;
   query?: Query;
+  stopRequested: boolean;
 }
 
 type QueryAttemptOutcome = "completed" | "resume_failed";
@@ -74,7 +75,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     assertClaudeSession(session);
 
     const abortController = new AbortController();
-    const activeQuery: ActiveClaudeQuery = { abortController };
+    const activeQuery: ActiveClaudeQuery = { abortController, stopRequested: false };
     this.activeQueries.set(session, activeQuery);
 
     try {
@@ -88,7 +89,11 @@ export class ClaudeCodeAdapter implements BackendAdapter {
           resumeSessionId,
         );
 
-        if (resumeOutcome !== "resume_failed" || abortController.signal.aborted) {
+        if (
+          resumeOutcome !== "resume_failed" ||
+          abortController.signal.aborted ||
+          activeQuery.stopRequested
+        ) {
           return;
         }
 
@@ -125,6 +130,21 @@ export class ClaudeCodeAdapter implements BackendAdapter {
       activeQuery.query = sdkQuery;
 
       for await (const sdkMessage of sdkQuery) {
+        if (activeQuery.stopRequested && sdkMessage.type === "result") {
+          terminalEventEmitted = true;
+          session.sessionId = sdkMessage.session_id;
+          yield {
+            type: "stopped",
+            message: STOPPED_MESSAGE,
+            sessionId: sdkMessage.session_id,
+          };
+          return "completed";
+        }
+
+        if (activeQuery.stopRequested) {
+          continue;
+        }
+
         const text = extractTextDelta(sdkMessage);
         if (text !== null) {
           streamedText = true;
@@ -148,11 +168,18 @@ export class ClaudeCodeAdapter implements BackendAdapter {
       }
 
       if (!terminalEventEmitted) {
-        yield buildMissingResultEvent(activeQuery.abortController.signal.aborted);
+        yield buildMissingResultEvent(
+          activeQuery.abortController.signal.aborted || activeQuery.stopRequested,
+          session.sessionId,
+        );
       }
     } catch (error: unknown) {
-      if (activeQuery.abortController.signal.aborted) {
-        yield { type: "stopped", message: STOPPED_MESSAGE };
+      if (activeQuery.abortController.signal.aborted || activeQuery.stopRequested) {
+        yield {
+          type: "stopped",
+          message: STOPPED_MESSAGE,
+          ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+        };
         return "completed";
       }
 
@@ -176,7 +203,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
   }
 
   /** Requests cancellation for an active Claude Code query. */
-  public stop(session: BackendSession): void {
+  public async stop(session: BackendSession): Promise<void> {
     assertClaudeSession(session);
 
     const activeQuery = this.activeQueries.get(session);
@@ -184,8 +211,28 @@ export class ClaudeCodeAdapter implements BackendAdapter {
       throw new UserFacingError("CLAUDE_TASK_NOT_RUNNING", "当前 Claude Code 会话没有正在运行的任务。");
     }
 
-    activeQuery.abortController.abort();
-    activeQuery.query?.close();
+    activeQuery.stopRequested = true;
+
+    if (activeQuery.query === undefined) {
+      activeQuery.abortController.abort();
+      return;
+    }
+
+    try {
+      await activeQuery.query.interrupt();
+    } catch (error: unknown) {
+      this.logger.error("Claude Code SDK interrupt failed; force-closing query.", {
+        error,
+        cwd: session.cwd,
+      });
+      activeQuery.abortController.abort();
+      activeQuery.query.close();
+      throw new UserFacingError(
+        "CLAUDE_STOP_FAILED",
+        "中断当前 Agent 任务失败，请稍后重试。",
+        { cause: error },
+      );
+    }
   }
 
   /** Releases adapter bookkeeping for a Claude Code session handle. */
@@ -291,9 +338,13 @@ function isResumeFailureResult(
 }
 
 /** Reports an interrupted or malformed SDK stream without pretending it succeeded. */
-function buildMissingResultEvent(wasAborted: boolean): AgentEvent {
-  if (wasAborted) {
-    return { type: "stopped", message: STOPPED_MESSAGE };
+function buildMissingResultEvent(wasStopped: boolean, sessionId?: string): AgentEvent {
+  if (wasStopped) {
+    return {
+      type: "stopped",
+      message: STOPPED_MESSAGE,
+      ...(sessionId ? { sessionId } : {}),
+    };
   }
 
   return { type: "error", message: NO_RESULT_MESSAGE };

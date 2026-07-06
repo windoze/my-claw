@@ -148,14 +148,24 @@ async function handleNormalMessage(
     const environment = await options.sessionManager.getCurrentEnvironment();
     backend = options.backendRegistry.get(environment);
     session = await backend.open(environment);
+    const activeBackend = backend;
+    const activeSession = session;
+    options.sessionManager.setCurrentTaskControl({
+      session: activeSession,
+      stop: () => activeBackend.stop(activeSession),
+    });
     events = await collectAgentEvents(
       backend.send(session, { text: message.text, messageId: message.id }),
     );
-    await saveDoneSessionId(events, environment, options.sessionManager);
+    await saveTerminalSessionId(events, environment, options.sessionManager);
     await options.outputRenderer.render(events, replySink);
   } catch (error: unknown) {
     await replyNormalMessageError(error, message, replySink, handlerLogger, options);
   } finally {
+    if (session !== null) {
+      options.sessionManager.clearCurrentTaskControl(session);
+    }
+
     if (backend !== null && session !== null) {
       await closeBackendSession(backend, session, handlerLogger);
     }
@@ -228,27 +238,27 @@ async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<Ag
   return collectedEvents;
 }
 
-/** Persists the latest backend session id emitted by a completion event. */
-async function saveDoneSessionId(
+/** Persists the latest backend session id emitted by a terminal event. */
+async function saveTerminalSessionId(
   events: readonly AgentEvent[],
   environment: Awaited<ReturnType<SessionManager["getCurrentEnvironment"]>>,
   sessionManager: SessionManager,
 ): Promise<void> {
-  const doneWithSession = findLastDoneSessionEvent(events);
+  const terminalEvent = findLastTerminalSessionEvent(events);
 
-  if (doneWithSession !== undefined) {
-    await sessionManager.saveSessionId(environment, doneWithSession.sessionId);
+  if (terminalEvent !== undefined) {
+    await sessionManager.saveSessionId(environment, terminalEvent.sessionId);
   }
 }
 
-/** Finds the newest completion event that carries durable backend session metadata. */
-function findLastDoneSessionEvent(
+/** Finds the newest terminal event that carries durable backend session metadata. */
+function findLastTerminalSessionEvent(
   events: readonly AgentEvent[],
-): (Extract<AgentEvent, { type: "done" }> & { sessionId: string }) | undefined {
+): (Extract<AgentEvent, { type: "done" | "stopped" }> & { sessionId: string }) | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
 
-    if (event !== undefined && isDoneSessionEvent(event)) {
+    if (event !== undefined && isTerminalSessionEvent(event)) {
       return event;
     }
   }
@@ -256,11 +266,11 @@ function findLastDoneSessionEvent(
   return undefined;
 }
 
-/** Narrows backend events to completion events that contain a concrete session id. */
-function isDoneSessionEvent(
+/** Narrows backend events to terminal events that contain a concrete session id. */
+function isTerminalSessionEvent(
   event: AgentEvent,
-): event is Extract<AgentEvent, { type: "done" }> & { sessionId: string } {
-  return event.type === "done" && event.sessionId !== undefined;
+): event is Extract<AgentEvent, { type: "done" | "stopped" }> & { sessionId: string } {
+  return (event.type === "done" || event.type === "stopped") && event.sessionId !== undefined;
 }
 
 /** Closes backend resources while still allowing runtime state to be restored. */

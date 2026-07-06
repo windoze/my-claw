@@ -48,6 +48,7 @@ export interface AgentErrorEvent {
 export interface AgentStoppedEvent {
   type: "stopped";
   message?: string;
+  sessionId?: string;
 }
 
 /** Tool invocation start event reserved for logging and future progress output. */

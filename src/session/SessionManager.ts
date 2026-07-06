@@ -1,6 +1,7 @@
 /** Coordinates Agent environment selection, project state, and runtime concurrency rules. */
 
 import type { AppConfig, AgentEnvironmentConfig } from "../config/types.js";
+import type { BackendSession } from "../backend/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { StateStore } from "../state/StateStore.js";
 import type {
@@ -11,6 +12,7 @@ import type {
   RuntimeTaskState,
 } from "../state/types.js";
 import { UserFacingError } from "../utils/errors.js";
+import { createLogger, type Logger } from "../utils/logger.js";
 import type { AgentEnvironment } from "./types.js";
 
 const PROJECT_BUSY_MESSAGE =
@@ -26,7 +28,9 @@ export type SessionManagerErrorCode =
   | "SESSION_PROJECT_STOPPING"
   | "SESSION_TASK_BUSY"
   | "SESSION_TASK_STOPPING"
-  | "SESSION_NO_RUNNING_TASK";
+  | "SESSION_NO_RUNNING_TASK"
+  | "SESSION_STOP_UNAVAILABLE"
+  | "SESSION_STOP_FAILED";
 
 /** User-facing error thrown when a state transition is rejected. */
 export class SessionManagerError extends UserFacingError {
@@ -46,6 +50,7 @@ export interface SessionManagerOptions {
   pathPolicy: PathPolicy;
   pathBaseDir?: string;
   now?: () => Date;
+  logger?: Logger;
 }
 
 /** Options for building a session manager and path policy from validated config. */
@@ -124,6 +129,12 @@ export interface StartTaskOptions {
   startedAt?: Date | string;
 }
 
+/** In-memory backend control handle for the currently running task. */
+export interface CurrentTaskControl {
+  session: BackendSession;
+  stop(): Promise<void> | void;
+}
+
 /** Builds a SessionManager, creating the path policy from validated config when omitted. */
 export async function createSessionManager(
   options: CreateSessionManagerOptions,
@@ -147,6 +158,8 @@ export class SessionManager {
   private readonly pathPolicy: PathPolicy;
   private readonly pathBaseDir?: string;
   private readonly now: () => Date;
+  private readonly logger: Logger;
+  private currentTaskControl: CurrentTaskControl | null = null;
 
   public constructor(options: SessionManagerOptions) {
     this.config = options.config;
@@ -154,6 +167,7 @@ export class SessionManager {
     this.pathPolicy = options.pathPolicy;
     this.pathBaseDir = options.pathBaseDir;
     this.now = options.now ?? (() => new Date());
+    this.logger = options.logger ?? createLogger("session");
   }
 
   /** Returns the active project environment, or the configured default environment. */
@@ -268,8 +282,62 @@ export class SessionManager {
         return {
           status: "stopping",
           canRequestStop: false,
-          message: "任务正在中断，请稍候。",
+          message: "正在中断，请稍等。",
         };
+    }
+  }
+
+  /** Stores the backend stop handle for the task that is currently running. */
+  public setCurrentTaskControl(control: CurrentTaskControl): void {
+    this.currentTaskControl = control;
+  }
+
+  /** Clears the backend stop handle after the owning task finishes or is closed. */
+  public clearCurrentTaskControl(session?: BackendSession): void {
+    if (session !== undefined && this.currentTaskControl?.session !== session) {
+      return;
+    }
+
+    this.currentTaskControl = null;
+  }
+
+  /** Requests interruption of the active backend task and moves runtime state to stopping. */
+  public async requestStopCurrentTask(): Promise<void> {
+    const stopState = await this.getStopState();
+
+    if (!stopState.canRequestStop) {
+      throw new SessionManagerError("SESSION_NO_RUNNING_TASK", stopState.message);
+    }
+
+    const control = this.currentTaskControl;
+    if (control === null) {
+      throw new SessionManagerError(
+        "SESSION_STOP_UNAVAILABLE",
+        "当前 Agent 任务还未准备好中断，请稍后重试。",
+      );
+    }
+
+    await this.markStopping();
+
+    try {
+      await control.stop();
+    } catch (error: unknown) {
+      this.logger.error("Stopping current Agent task failed.", {
+        error,
+        backend: control.session.backend,
+        cwd: control.session.cwd,
+      });
+      this.clearCurrentTaskControl(control.session);
+      await this.markIdle();
+
+      if (error instanceof UserFacingError) {
+        throw error;
+      }
+
+      throw new SessionManagerError(
+        "SESSION_STOP_FAILED",
+        "中断当前 Agent 任务失败，请稍后重试。",
+      );
     }
   }
 

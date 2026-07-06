@@ -260,7 +260,7 @@
 
 完成记录：2026-07-06 新增共享 `handleIncomingMessage` 路由，先由 `CommandRouter` 处理 slash command，普通消息在 `SessionManager.canAcceptNormalMessage()` 通过后切换运行状态、调用当前环境 backend、收集 `AgentEvent`、保存完成事件中的 session ID、通过 `OutputRenderer` 回复并在成功或失败后关闭 backend session 且恢复 `idle`；运行中普通消息会回复 `Agent 正在运行，发送 /stop 可中断当前任务。`。新增 `src/output/OutputRenderer.ts` 和输出公共导出，支持第一阶段 Markdown 渲染文本、完成、错误、中断和空输出事件；fake-message 本地运行时已改为复用共享路由。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，并通过 focused 本地检查覆盖普通消息触发 backend、运行状态 `idle -> running -> idle`、运行中拒绝文本和 backend 失败后恢复 `idle`。
 
-## T17 [TODO] 实现 `/stop` 对 Claude Code 的真实中断
+## T17 [DONE] 实现 `/stop` 对 Claude Code 的真实中断
 
 阶段：第一阶段，任务控制。
 
@@ -273,6 +273,8 @@
 实现细节：中断过程中拒绝新普通消息、`/cc`、`/close`；重复 `/stop` 回复 `正在中断，请稍等。`；中断失败时记录详细日志，回复简短错误，并尽量恢复到 `idle`。
 
 验收：发起长任务后 `/stop` 能中断；中断后 `/state` 显示 `idle`；中断后可以继续发送普通消息；多次 `/stop` 不会导致状态错乱。
+
+完成记录：2026-07-06 实现 `/stop` 到真实后端中断链路：`SessionManager` 现在保存当前运行任务的 `BackendSession` 和 stop 控制函数，`/stop` 在运行中请求中断并进入 `stopping`，重复 `/stop` 回复 `正在中断，请稍等。`，普通消息、`/cc`、`/close` 在中断过程中继续被拒绝；普通消息路由注册并清理当前后端控制句柄，最终在事件流 drain 完成后恢复 `idle`。`ClaudeCodeAdapter.stop()` 改为调用 SDK `Query.interrupt()`，成功中断时不强制 close，而是继续 drain 当前响应流并产出 `AgentEvent.stopped`；中断失败时记录详细日志、强制 abort/close 并向用户返回简短错误。FakeBackend 增加可等待 stop 的长任务模式，便于本地验证。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、focused stop-flow check、focused Claude adapter interrupt check 和 focused stop-failure recovery check。
 
 ## T18 [TODO] 实现 Markdown 输出渲染和长消息分段
 

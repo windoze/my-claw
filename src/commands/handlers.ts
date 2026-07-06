@@ -161,17 +161,12 @@ export async function handleStopCommand(
     return;
   }
 
-  if (stopCurrentTask === undefined) {
-    await context.replySink.sendText("当前任务正在运行，但后端中断能力尚未接入。");
-    return;
-  }
-
-  await sessionManager.markStopping();
-  await stopCurrentTask({
+  const requestStop = stopCurrentTask ?? (() => sessionManager.requestStopCurrentTask());
+  await context.replySink.sendText("已请求中断当前 Agent 任务。");
+  await requestStop({
     message: context.message,
     currentTask: stopState.currentTask,
   });
-  await context.replySink.sendText("已请求中断当前任务。");
 }
 
 /** Reports command syntax errors without letting malformed slash commands reach Agent backends. */
