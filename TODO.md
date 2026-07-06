@@ -148,7 +148,7 @@
 
 完成记录：2026-07-06 新增 `src/commands/CommandRouter.ts`、`src/commands/handlers.ts` 和 `src/commands/index.ts`，实现 `CommandRouter.handle(message, replySink)` 统一调用 `parseCommand`、对非命令返回 `false`、对已处理命令返回 `true`，并分发 `/state`、`/oc`、`/cc`、`/close`、`/stop`、未知命令和非法命令；默认 handler 提供 `/state`、`/oc` 和 SessionManager 相关命令占位回复，未知命令不会落入普通 Agent 消息；handler 抛出 `UserFacingError` 时回复 `safeMessage`，其他异常记录详细日志并回复通用错误。已验证 `npm run typecheck`、`npm run build`，以及 fake message/fake reply 覆盖非命令、`/state`、`/oc`、未知命令、非法命令、所有已知命令分发、`UserFacingError.safeMessage` 和通用异常日志路径。
 
-## T10 [TODO] 实现 SessionManager 的环境选择和状态机
+## T10 [DONE] 实现 SessionManager 的环境选择和状态机
 
 阶段：第一阶段，会话管理。
 
@@ -161,6 +161,8 @@
 实现细节：提供 `canAcceptNormalMessage()`；状态为 `running` 或 `stopping` 时普通消息拒绝；状态为 `running` 或 `stopping` 时 `/cc` 和 `/close` 拒绝；`/state` 总是允许；`/stop` 在不同状态下按设计返回。
 
 验收：无 active project 时当前环境是默认环境；`/cc` 后当前环境切为项目；`/close` 后回默认环境；运行中切换项目被拒绝；状态变更都会写入 `StateStore`。
+
+完成记录：2026-07-06 新增 `src/session/SessionManager.ts` 和 `src/session/index.ts`，实现默认环境与 active project 环境选择、`openClaudeProject(dir)` 路径白名单校验与 `activeProject`/`knownProjects` 持久化、`closeProject()` 回到默认环境并保留项目 session、脱敏 `getStateSummary()`、普通消息与 `/cc`/`/close` 的运行态拒绝规则、`/state`/`/stop` 可用性判断、运行任务 `running`/`stopping`/`idle` 状态迁移以及默认/项目 sessionId 保存。已验证 `npm run typecheck`、`npm run build`，并通过本地 `tsx` acceptance 检查覆盖默认环境、`/cc` 切换项目、`/close` 回默认、运行中拒绝切换、运行中优先返回忙碌错误、停止状态决策、项目 session 保留、状态摘要 sessionId 脱敏和白名单外目录拒绝。
 
 ## T11 [TODO] 实现第一阶段命令处理器
 
