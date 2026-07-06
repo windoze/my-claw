@@ -15,6 +15,8 @@ import {
   DEFAULT_ATTACHMENT_TEMP_DIR,
   DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
   DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+  DEFAULT_STREAMING_CONTENT_KEY,
+  DEFAULT_STREAMING_UPDATE_THROTTLE_MS,
   type AppConfig,
 } from "../config/types.js";
 import type {
@@ -248,6 +250,12 @@ function createFakeConfig(
       mode: "markdown",
       maxMessageChars: DEFAULT_OUTPUT_MAX_MESSAGE_CHARS,
     },
+    streaming: {
+      mode: "markdown",
+      updateThrottleMs: DEFAULT_STREAMING_UPDATE_THROTTLE_MS,
+      fallbackMode: "markdown",
+      contentKey: DEFAULT_STREAMING_CONTENT_KEY,
+    },
   };
 }
 
@@ -447,6 +455,14 @@ function formatReplyCall(call: FakeReplyCall): string {
 
   if (call.type === "file") {
     return `[file] ${call.file.name} (${call.file.sizeBytes} bytes) ${call.file.path}`;
+  }
+
+  if (call.type === "card_start") {
+    return `[card:start] ${call.handle.cardId ?? call.handle.outTrackId}`;
+  }
+
+  if (call.type === "card_update") {
+    return `[card:update] status=${call.input.status} final=${String(call.input.isFinal)}`;
   }
 
   return `[markdown]\n${call.markdown}`;

@@ -3,6 +3,7 @@
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream-sdk-nodejs";
 
 import { AppError, createLogger, type Logger } from "../utils/index.js";
+import { DingTalkCardClient, DingTalkCardStreamer } from "./cards/index.js";
 import { DingTalkFileClient, DingTalkReplySink } from "./DingTalkReplySink.js";
 import { MessageDeduper, type MessageDeduperDecision } from "./MessageDeduper.js";
 import {
@@ -36,6 +37,7 @@ export class DingTalkAdapter {
   private readonly handler: DingTalkAdapterOptions["handler"];
   private readonly createReplySink: DingTalkReplySinkFactory;
   private readonly fileClient: DingTalkFileClient;
+  private readonly cardClient: DingTalkCardClient | undefined;
   private readonly client: DingTalkStreamClient;
   private readonly deduper: MessageDeduper;
   private readonly logger: Logger;
@@ -52,6 +54,14 @@ export class DingTalkAdapter {
       config: this.config,
       logger: this.logger,
     });
+    this.cardClient =
+      options.streaming?.mode === "ai-card"
+        ? new DingTalkCardClient({
+            dingtalkConfig: this.config,
+            streamingConfig: options.streaming,
+            logger: this.logger,
+          })
+        : undefined;
     this.createReplySink =
       options.createReplySink ??
       ((context) =>
@@ -59,6 +69,13 @@ export class DingTalkAdapter {
           context,
           config: this.config,
           fileClient: this.fileClient,
+          cardStreamer:
+            this.cardClient === undefined
+              ? undefined
+              : new DingTalkCardStreamer({
+                  context,
+                  client: this.cardClient,
+                }),
           logger: this.logger,
         }));
     this.topic = options.topic ?? TOPIC_ROBOT;

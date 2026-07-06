@@ -2,7 +2,7 @@
 
 import type { DWClientDownStream } from "dingtalk-stream-sdk-nodejs";
 
-import type { DingTalkConfig } from "../config/types.js";
+import type { DingTalkConfig, StreamingConfig } from "../config/types.js";
 import type { IncomingMessage } from "../messages/types.js";
 import type { ReplySink } from "../output/types.js";
 import type { Logger } from "../utils/logger.js";
@@ -113,6 +113,7 @@ export type DingTalkMessageMappingResult =
 /** Runtime configuration needed by DingTalkAdapter. */
 export interface DingTalkAdapterOptions {
   config: DingTalkConfig;
+  streaming?: StreamingConfig;
   handler: DingTalkIncomingMessageHandler;
   createReplySink?: DingTalkReplySinkFactory;
   clientFactory?: DingTalkStreamClientFactory;

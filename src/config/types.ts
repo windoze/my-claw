@@ -19,6 +19,18 @@ export type ClaudeCodePermissionMode = (typeof CLAUDE_CODE_PERMISSION_MODES)[num
 /** Output renderer modes accepted by configuration. */
 export type OutputMode = "markdown";
 
+/** Streaming renderer modes accepted by configuration. */
+export type StreamingMode = "markdown" | "ai-card";
+
+/** Fallback output modes used when card streaming is unavailable or fails. */
+export type StreamingFallbackMode = "markdown";
+
+/** Default minimum interval between card content updates. */
+export const DEFAULT_STREAMING_UPDATE_THROTTLE_MS = 800;
+
+/** Default AI Card template variable that receives generated Markdown content. */
+export const DEFAULT_STREAMING_CONTENT_KEY = "content";
+
 /** Default per-file download limit used when security.maxDownloadFileBytes is omitted. */
 export const DEFAULT_MAX_DOWNLOAD_FILE_BYTES = 20 * 1024 * 1024;
 
@@ -86,6 +98,15 @@ export interface OutputConfig {
   maxMessageChars: number;
 }
 
+/** DingTalk card/AI Card streaming behavior. */
+export interface StreamingConfig {
+  mode: StreamingMode;
+  templateId?: string;
+  updateThrottleMs: number;
+  fallbackMode: StreamingFallbackMode;
+  contentKey: string;
+}
+
 /** Fully validated application configuration used by runtime modules. */
 export interface AppConfig {
   dingtalk: DingTalkConfig;
@@ -94,4 +115,5 @@ export interface AppConfig {
   security: SecurityConfig;
   claudeCode: ClaudeCodeConfig;
   output: OutputConfig;
+  streaming: StreamingConfig;
 }

@@ -8,6 +8,8 @@ import {
   DEFAULT_ATTACHMENT_TEMP_DIR,
   DEFAULT_MAX_ATTACHMENT_FILE_BYTES,
   DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+  DEFAULT_STREAMING_CONTENT_KEY,
+  DEFAULT_STREAMING_UPDATE_THROTTLE_MS,
 } from "./types.js";
 
 /** Shared non-empty string rule for required configuration text fields. */
@@ -18,6 +20,12 @@ const agentBackendSchema = z.enum(["claude-code", "opencode"]);
 
 /** Output formats accepted by the current DingTalk reply renderer. */
 const outputModeSchema = z.literal("markdown");
+
+/** Streaming modes accepted by the current DingTalk reply renderer. */
+const streamingModeSchema = z.enum(["markdown", "ai-card"]);
+
+/** Fallback formats accepted when card streaming cannot be used. */
+const streamingFallbackModeSchema = z.literal("markdown");
 
 /** Validates an agent execution environment block. */
 export const agentEnvironmentConfigSchema = z
@@ -97,6 +105,32 @@ export const outputConfigSchema = z
   })
   .strict();
 
+/** Validates optional DingTalk AI Card streaming behavior. */
+export const streamingConfigSchema = z
+  .object({
+    mode: streamingModeSchema.default("markdown"),
+    templateId: nonEmptyStringSchema.optional(),
+    updateThrottleMs: z.number().int().positive().default(DEFAULT_STREAMING_UPDATE_THROTTLE_MS),
+    fallbackMode: streamingFallbackModeSchema.default("markdown"),
+    contentKey: nonEmptyStringSchema.default(DEFAULT_STREAMING_CONTENT_KEY),
+  })
+  .strict()
+  .superRefine((streaming, context) => {
+    if (streaming.mode === "ai-card" && streaming.templateId === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["templateId"],
+        message: "is required when streaming.mode is ai-card",
+      });
+    }
+  })
+  .default({
+    mode: "markdown",
+    updateThrottleMs: DEFAULT_STREAMING_UPDATE_THROTTLE_MS,
+    fallbackMode: "markdown",
+    contentKey: DEFAULT_STREAMING_CONTENT_KEY,
+  });
+
 /** Validates the complete application configuration. */
 export const appConfigSchema = z
   .object({
@@ -106,5 +140,6 @@ export const appConfigSchema = z
     security: securityConfigSchema,
     claudeCode: claudeCodeConfigSchema,
     output: outputConfigSchema,
+    streaming: streamingConfigSchema,
   })
   .strict();

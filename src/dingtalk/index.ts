@@ -3,6 +3,7 @@
 export * from "./DingTalkAdapter.js";
 export * from "./DingTalkReplySink.js";
 export * from "./MessageDeduper.js";
+export * from "./cards/index.js";
 export * from "./mapMessage.js";
 export * from "./media.js";
 export * from "./types.js";

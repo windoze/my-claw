@@ -48,5 +48,14 @@
   "output": {
     "mode": "markdown",
     "maxMessageChars": 18000
+  },
+  "streaming": {
+    // Keep "markdown" unless you have created and published a DingTalk AI Card template.
+    // Set to "ai-card" to stream long Agent output through DingTalk AI Card updates.
+    "mode": "markdown",
+    "templateId": "replace-with-dingtalk-ai-card-template-id",
+    "updateThrottleMs": 800,
+    "fallbackMode": "markdown",
+    "contentKey": "content"
   }
 }

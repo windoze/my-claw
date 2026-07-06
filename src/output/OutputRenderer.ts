@@ -1,33 +1,47 @@
 /** Renders backend Agent events into replies for the current chat. */
 
 import type { AgentEvent } from "../backend/types.js";
-import type { OutputConfig } from "../config/types.js";
+import type { OutputConfig, StreamingConfig } from "../config/types.js";
 import { createLogger, type Logger } from "../utils/logger.js";
-import { formatAgentErrorEvent } from "./formatErrors.js";
+import { CardStreamingRenderer } from "./CardStreamingRenderer.js";
+import { EMPTY_OUTPUT_MESSAGE, renderAgentEventMessages } from "./renderAgentEvents.js";
 import { splitMarkdown } from "./splitMarkdown.js";
-import type { ReplySink } from "./types.js";
-
-const EMPTY_OUTPUT_MESSAGE = "任务已完成，但没有文本输出。";
-const DEFAULT_STOPPED_MESSAGE = "当前 Agent 任务已中断。";
+import type { OutputRenderContext, ReplySink } from "./types.js";
 
 /** Options required by the backend event renderer. */
 export interface OutputRendererOptions {
   config: OutputConfig;
+  streaming?: StreamingConfig;
   logger?: Logger;
 }
 
 /** Converts backend-neutral Agent events to Markdown replies. */
 export class OutputRenderer {
   private readonly config: OutputConfig;
+  private readonly streamingConfig: StreamingConfig | undefined;
   private readonly logger: Logger;
+  private readonly cardRenderer: CardStreamingRenderer | undefined;
 
   public constructor(options: OutputRendererOptions) {
     this.config = options.config;
+    this.streamingConfig = options.streaming;
     this.logger = options.logger ?? createLogger("output");
+    this.cardRenderer =
+      this.streamingConfig?.mode === "ai-card"
+        ? new CardStreamingRenderer({
+            config: this.streamingConfig,
+            fallbackRenderer: this,
+            logger: this.logger,
+          })
+        : undefined;
   }
 
   /** Renders all collected events to the supplied reply sink. */
-  public async render(events: readonly AgentEvent[], replySink: ReplySink): Promise<void> {
+  public async render(
+    events: readonly AgentEvent[],
+    replySink: ReplySink,
+    _context: OutputRenderContext = {},
+  ): Promise<void> {
     const messages = this.renderMessages(events);
 
     if (messages.length === 0) {
@@ -40,38 +54,32 @@ export class OutputRenderer {
     }
   }
 
-  /** Converts an event list into user-visible Markdown message bodies. */
-  private renderMessages(events: readonly AgentEvent[]): string[] {
-    const messages: string[] = [];
-    const textParts: string[] = [];
-
-    for (const event of events) {
-      switch (event.type) {
-        case "text":
-          textParts.push(event.text);
-          break;
-        case "done":
-          appendDoneResult(textParts, event.result);
-          break;
-        case "error":
-          flushTextParts(textParts, messages);
-          messages.push(formatAgentErrorEvent(event));
-          break;
-        case "stopped":
-          flushTextParts(textParts, messages);
-          messages.push(DEFAULT_STOPPED_MESSAGE);
-          break;
-        case "tool_start":
-          this.logger.debug("Agent tool started.", { tool: event.name });
-          break;
-        case "tool_finish":
-          this.logger.debug("Agent tool finished.", { tool: event.name });
-          break;
-      }
+  /** Renders a backend event stream and returns every event it consumed. */
+  public async renderStream(
+    events: AsyncIterable<AgentEvent>,
+    replySink: ReplySink,
+    context: OutputRenderContext = {},
+  ): Promise<AgentEvent[]> {
+    if (this.cardRenderer !== undefined && replySink.cardStreamer !== undefined) {
+      return this.cardRenderer.renderStream(events, replySink, context);
     }
 
-    flushTextParts(textParts, messages);
-    return messages.flatMap((message) => splitMarkdown(message, this.config.maxMessageChars));
+    if (this.streamingConfig?.mode === "ai-card" && replySink.cardStreamer === undefined) {
+      this.logger.warn("AI Card streaming is configured but the reply sink has no card streamer; using Markdown fallback.", {
+        taskId: context.taskId,
+      });
+    }
+
+    const collectedEvents = await collectAgentEvents(events);
+    await this.render(collectedEvents, replySink, context);
+    return collectedEvents;
+  }
+
+  /** Converts an event list into user-visible Markdown message bodies. */
+  private renderMessages(events: readonly AgentEvent[]): string[] {
+    return renderAgentEventMessages(events, this.logger).flatMap((message) =>
+      splitMarkdown(message, this.config.maxMessageChars),
+    );
   }
 
   /** Sends a Markdown body according to the configured output mode. */
@@ -84,25 +92,12 @@ export class OutputRenderer {
   }
 }
 
-/** Adds a final result after streamed text without merging unrelated paragraphs. */
-function appendDoneResult(textParts: string[], result: string | undefined): void {
-  if (result === undefined || result.trim().length === 0) {
-    return;
+async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
+  const collectedEvents: AgentEvent[] = [];
+
+  for await (const event of events) {
+    collectedEvents.push(event);
   }
 
-  if (textParts.join("").trim().length > 0) {
-    textParts.push("\n\n");
-  }
-
-  textParts.push(result);
-}
-
-/** Moves accumulated text into the outgoing message list when it contains content. */
-function flushTextParts(textParts: string[], messages: string[]): void {
-  const text = textParts.join("").trimEnd();
-  textParts.length = 0;
-
-  if (text.trim().length > 0) {
-    messages.push(text);
-  }
+  return collectedEvents;
 }

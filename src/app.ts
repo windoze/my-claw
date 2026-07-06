@@ -105,6 +105,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   ]);
   const outputRenderer = new OutputRenderer({
     config: config.output,
+    streaming: config.streaming,
     logger: createLogger("output"),
   });
   const fileService = new FileService({
@@ -147,6 +148,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   });
   const dingtalkAdapter = new DingTalkAdapter({
     config: config.dingtalk,
+    streaming: config.streaming,
     handler: handleIncomingMessage,
     clientFactory: options.dingtalkClientFactory,
     logger: createLogger("dingtalk"),
@@ -411,15 +413,18 @@ async function handleNormalMessage(
       stop: () => activeBackend.stop(activeSession),
       close: () => activeBackend.close(activeSession),
     });
-    events = await collectAgentEvents(
+    events = await options.outputRenderer.renderStream(
       backend.send(session, {
         text: message.text,
         messageId: message.id,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       }),
+      replySink,
+      {
+        taskId: message.id,
+      },
     );
     await saveTerminalSessionId(events, environment, options.sessionManager);
-    await options.outputRenderer.render(events, replySink);
   } catch (error: unknown) {
     await replyNormalMessageError(error, message, replySink, handlerLogger, options);
   } finally {
@@ -486,17 +491,6 @@ function formatUserFacingNormalMessageError(error: UserFacingError): string {
   }
 
   return error.safeMessage ?? error.message;
-}
-
-/** Collects a backend event stream before the renderer sends user-visible output. */
-async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
-  const collectedEvents: AgentEvent[] = [];
-
-  for await (const event of events) {
-    collectedEvents.push(event);
-  }
-
-  return collectedEvents;
 }
 
 /** Persists the latest backend session id emitted by a terminal event. */

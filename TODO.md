@@ -468,7 +468,7 @@
 
 完成记录：2026-07-06 完成用户附件输入：`IncomingMessage` 和 `AgentInput` 已扩展 `attachments` 元数据，支持 `type`、`filename`、`mime`、`downloadCode`、`localPath` 和 `size`；`mapDingTalkRobotMessage` 现在识别钉钉 `file` 和 `image`/`picture` 消息，提取 `downloadCode`、文件名、MIME 和大小，不支持的空内容消息仍会由安全门给授权用户返回清晰提示。新增 `security.attachmentTempDir`、`security.maxAttachmentFileBytes` 和 `security.allowedAttachmentMimeTypes` 默认配置，`.agent-dingtalk-tmp/` 已加入 `.gitignore`；新增 `TempFileStore`，将授权后的附件保存到受控临时目录，按大小和 MIME 类型校验，流式写入时继续强制执行大小上限，并通过 TTL 清理定期删除过期文件。新增 `DingTalkMediaClient` 和 attachment resolver，使用钉钉 `messageFiles.download` 接口下载附件；附件下载发生在私聊/用户白名单校验之后、普通 Agent 路由之前，slash command 不会下载未使用附件。Claude Code 和 OpenCode 后端当前均按非原生附件输入路径处理，把附件本地路径、文件名、MIME 和大小追加到 prompt，Fake runtime 可传入本地附件元数据用于本地检查。README 和配置样例已更新。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`，以及 focused attachment checks 覆盖文件/图片消息映射、钉钉 token + `messageFiles.download` 请求、文本附件保存并传入后端、prompt 中包含 localPath、不支持 MIME 明确提示、超大附件拒绝和临时目录 TTL 清理。
 
-## T30 [TODO] 第二阶段实现钉钉卡片或 AI Card 流式输出
+## T30 [DONE] 第二阶段实现钉钉卡片或 AI Card 流式输出
 
 阶段：第二阶段，流式体验。
 
@@ -481,6 +481,8 @@
 实现细节：卡片创建或更新失败时降级为 Markdown 完整回复；记录 card ID、任务 ID 和会话 ID 的映射；更新节流默认建议 `800ms`；不要每个 token 更新一次卡片。
 
 验收：长回复能以卡片持续更新；卡片更新失败时最终回复不丢失；`/stop` 后卡片显示已中断；频繁输出不会明显触发限流。
+
+完成记录：2026-07-06 选择当前钉钉 AI Card 流式更新路径实现第二阶段流式输出，不依赖历史普通卡片更新接口：新增 `streaming` 配置块，支持 `mode`、`templateId`、`updateThrottleMs`、`fallbackMode` 和 `contentKey`，默认保持 Markdown 输出，`ai-card` 模式要求配置模板 ID 并以 800ms 默认节流更新。新增 `src/dingtalk/cards/CardClient.ts`，通过钉钉 `interactiveCards/send` 创建初始机器人卡片实例，再使用 `v1.0/card/streaming` 对 AI Card 内容变量做全量流式更新；记录 card/outTrackId、taskId 和 sessionId 映射日志，创建或更新失败会记录安全摘要且不泄露 token。新增 `CardStreamingRenderer`，普通 Agent 消息现在可边消费 backend 事件边更新卡片，聚合 `AgentEvent.text` 和 `done.result`，完成时标记 done，中断时标记 stopped，错误时标记 error；卡片创建或更新失败会降级发送完整 Markdown，保证最终回复不丢失，并按 `updateThrottleMs` 避免每 token 更新。`ReplySink` 增加可选 card streamer，DingTalk reply sink 和 adapter 已接入，FakeReplySink 支持记录卡片创建/更新用于本地验证。配置样例和 README 已更新 AI Card 模板、节流和 Markdown fallback 说明。已验证 `npm run typecheck`、`npm run build`、focused card streaming checks（卡片创建、最终 done 更新、更新失败 Markdown fallback、节流更新、schema 默认值和 ai-card templateId 校验、DingTalk token/create/update payload）、以及 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 通过。
 
 ## T31 [TODO] 第二阶段增强工具进度展示
 

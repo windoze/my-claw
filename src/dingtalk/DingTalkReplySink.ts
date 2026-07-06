@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
 import type { DingTalkConfig } from "../config/types.js";
-import type { ReplyFile, ReplySink } from "../output/types.js";
+import type { ReplyCardStreamer, ReplyFile, ReplySink } from "../output/types.js";
 import { AppError, createLogger, type Logger } from "../utils/index.js";
 import type { DingTalkReplyContext } from "./types.js";
 
@@ -16,6 +16,7 @@ interface DingTalkReplySinkOptions {
   context: DingTalkReplyContext;
   config?: DingTalkConfig;
   fileClient?: DingTalkFileClient;
+  cardStreamer?: ReplyCardStreamer;
   logger?: Logger;
   fetch?: WebhookFetch;
   now?: () => number;
@@ -226,6 +227,7 @@ export class DingTalkReplySink implements ReplySink {
   private readonly context: DingTalkReplyContext;
   private readonly config?: DingTalkConfig;
   private readonly fileClient?: DingTalkFileClient;
+  public readonly cardStreamer?: ReplyCardStreamer;
   private readonly logger: Logger;
   private readonly fetch: WebhookFetch;
   private readonly now: () => number;
@@ -234,6 +236,7 @@ export class DingTalkReplySink implements ReplySink {
     this.context = options.context;
     this.config = options.config;
     this.fileClient = options.fileClient;
+    this.cardStreamer = options.cardStreamer;
     this.logger = options.logger ?? createLogger("dingtalk:reply");
     this.fetch = options.fetch ?? fetch;
     this.now = options.now ?? Date.now;
