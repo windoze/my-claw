@@ -1,7 +1,7 @@
 /** Configuration model for agent-dingtalk.config.jsonc. */
 
-/** Backend names accepted by configuration; extend this union when OpenCode is enabled. */
-export type AgentBackend = "claude-code";
+/** Backend names accepted by runtime modules. */
+export type AgentBackend = "claude-code" | "opencode";
 
 /** Claude Code SDK permission modes accepted by configuration. */
 export const CLAUDE_CODE_PERMISSION_MODES = [

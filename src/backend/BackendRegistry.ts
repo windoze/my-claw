@@ -43,7 +43,7 @@ export class BackendRegistry {
     if (adapter === undefined) {
       throw new UserFacingError(
         "BACKEND_UNSUPPORTED",
-        `当前不支持 Agent 后端：${environment.backend}。第一阶段仅支持 claude-code。`,
+        `当前不支持 Agent 后端：${environment.backend}。请检查配置或后端注册状态。`,
       );
     }
 

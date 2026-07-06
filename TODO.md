@@ -404,7 +404,7 @@
 
 完成记录：2026-07-06 新增 `docs/phase1-acceptance.md`，逐项记录第一阶段验收清单。已通过 `npm run typecheck`、`npm run build`、fake message 命令闭环、未授权用户拒绝、群聊拒绝、临时 state 重启恢复、fake DingTalk Stream client 启停、DingTalk callback 映射和 Text/Markdown webhook payload、运行中并发拒绝和 `/stop`、Claude Code adapter smoke、临时非敏感项目目录文件上下文读取、Claude Code fake query 中断映射验证。未发现需要修改运行代码的缺陷；真实钉钉私聊收发因当前环境缺少外部企业内部应用/机器人/Stream Mode 凭据和授权用户，作为明确外部阻塞项记录在验收文档。
 
-## T26 [TODO] 第二阶段接入 OpenCode SDK 和 OpenCodeAdapter
+## T26 [DONE] 第二阶段接入 OpenCode SDK 和 OpenCodeAdapter
 
 阶段：第二阶段，OpenCode 后端。
 
@@ -417,6 +417,8 @@
 实现细节：`stop` 对应 OpenCode session abort；`close` 可只释放本进程创建的 OpenCode server，不要删除用户会话数据；所有 OpenCode 事件映射集中在一个文件，避免后续版本变化时散落修改。
 
 验收：本地 fake 输入可以直接调用 OpenCodeAdapter；OpenCode 能在指定 `cwd` 回答问题；错误时不会影响 Claude Code 后端。
+
+完成记录：2026-07-06 安装 `@opencode-ai/sdk`，新增 `src/backend/opencode/`，实现 `OpenCodeAdapter`、OpenCode session metadata、集中式 `mapOpenCodeEvent` 映射和 `npm run opencode:prompt` 本地 smoke 脚本；adapter 懒启动并复用 process-local OpenCode server，按 `cwd` 维护 client/session 上下文，`send` 使用 `event.subscribe()` + `session.promptAsync()`，只将 assistant `message.part.updated` 文本 delta 映射为 `AgentEvent.text`，将 `session.idle` 映射为 `done`，将 `session.error`/SDK 错误映射为安全错误；`stop` 调用 OpenCode `session.abort`，`dispose` 关闭本进程创建的 server 且不删除用户会话数据。`BackendRegistry` 和 `startApp()` 已注册 OpenCode adapter，但 `/oc` 项目切换仍按后续 T27 实现。已验证 `npm run typecheck`、`npm run build`、focused fake OpenCodeAdapter 检查（事件映射、忽略用户 text part、session 复用、stop->abort、server 单次关闭）、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"` 和 `npm run opencode:prompt -- --cwd . --server-timeout-ms 30000 "请只回复：OK"` 通过；真实 smoke 确认 OpenCode 可在当前 `cwd` 返回 `OK`，且默认 Claude Code/fake 路由未受影响。
 
 ## T27 [TODO] 第二阶段实现 `/oc <dir>` 项目切换
 

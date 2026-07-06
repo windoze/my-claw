@@ -3,6 +3,7 @@
 import {
   BackendRegistry,
   ClaudeCodeAdapter,
+  OpenCodeAdapter,
   type AgentEvent,
   type BackendAdapter,
   type BackendSession,
@@ -79,6 +80,9 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   });
   await stateStore.load();
   const sessionManager = await createSessionManager({ config, stateStore });
+  const openCodeAdapter = new OpenCodeAdapter({
+    logger: createLogger("backend:opencode"),
+  });
   const backendRegistry = new BackendRegistry([
     [
       "claude-code",
@@ -87,6 +91,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
         logger: createLogger("backend:claude-code"),
       }),
     ],
+    ["opencode", openCodeAdapter],
   ]);
   const outputRenderer = new OutputRenderer({
     config: config.output,
@@ -117,6 +122,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   const close = createAppRuntimeClose({
     dingtalkAdapter,
     sessionManager,
+    openCodeAdapter,
     logger: createLogger("shutdown"),
   });
 
@@ -152,6 +158,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
 interface AppRuntimeCloseOptions {
   dingtalkAdapter: DingTalkAdapter;
   sessionManager: SessionManager;
+  openCodeAdapter: OpenCodeAdapter;
   logger: Logger;
 }
 
@@ -175,6 +182,12 @@ function createAppRuntimeClose(options: AppRuntimeCloseOptions): () => Promise<v
       await options.sessionManager.closeCurrentTaskControl();
     } catch (error: unknown) {
       options.logger.error("Active backend task cleanup failed during shutdown.", { error });
+    }
+
+    try {
+      await options.openCodeAdapter.dispose();
+    } catch (error: unknown) {
+      options.logger.error("OpenCode backend cleanup failed during shutdown.", { error });
     }
   };
 }
