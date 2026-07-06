@@ -324,7 +324,7 @@
 
 完成记录：2026-07-06 新增 `src/security/SecurityGate.ts` 并从 `src/security/index.ts` 导出，按 `conversationType === "private"`、`dingtalk.rejectGroupMessages` 和 `dingtalk.allowedUserIds` 在命令路由和后端执行前完成授权；未授权用户和群聊/非私聊消息只记录安全 warn 且不回复、不触发 `/state`、`/cc`、`/stop` 或普通后端消息；授权用户空文本会回复 `暂不支持该消息类型` 且不会进入后端。`src/app.ts` 的共享 `handleIncomingMessage` 已接入可注入的 `SecurityGate`，`startApp()` 会用配置创建安全门；fake-message runtime 已同步接入安全门，支持本地验证授权、未授权、群聊和空文本路径。已验证 `npm run typecheck`、`npm run build`、focused SecurityGate acceptance（授权私聊 `/state`、未授权私聊无响应且 backend 不触发、群聊 `/cc` 不改变状态、空文本回复不支持且 backend 不触发）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
-## T21 [TODO] 实现钉钉 Text 和 Markdown 回复
+## T21 [DONE] 实现钉钉 Text 和 Markdown 回复
 
 阶段：第一阶段，钉钉输出。
 
@@ -337,6 +337,8 @@
 实现细节：Markdown 标题和代码块需要兼容钉钉 Markdown 子集；发送失败时要记录 HTTP 状态、错误码和安全摘要，不打印 token。
 
 验收：授权用户私聊 `/state` 能收到 Markdown 状态；普通消息完成后能收到 Claude Code 回复；发送失败不会导致进程退出。
+
+完成记录：2026-07-06 新增 `src/dingtalk/DingTalkReplySink.ts`，基于钉钉 `sessionWebhook` 实现 `ReplySink.sendText()` 和 `ReplySink.sendMarkdown()`，发送标准 text/markdown 机器人 payload；Markdown 回复会派生钉钉所需 title、规范化换行并补齐未闭合代码块；缺少或过期 `sessionWebhook` 会抛出可记录的 `AppError`，HTTP/钉钉错误会记录状态、错误码和安全摘要且不打印 token。`DingTalkAdapter` 现在默认基于回调上下文创建真实 `DingTalkReplySink`，仍支持注入 fake sink 进行本地验证。已验证 `npm run typecheck`、`npm run build`、focused DingTalk reply sink checks（text/Markdown payload、缺失/过期 webhook、HTTP 失败、日志不泄露 webhook token、adapter 默认 sink 分发）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
 ## T22 [TODO] 组装真实 App 启动流程
 

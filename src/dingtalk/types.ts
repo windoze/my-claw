@@ -105,7 +105,7 @@ export type DingTalkMessageMappingResult =
 export interface DingTalkAdapterOptions {
   config: DingTalkConfig;
   handler: DingTalkIncomingMessageHandler;
-  createReplySink: DingTalkReplySinkFactory;
+  createReplySink?: DingTalkReplySinkFactory;
   clientFactory?: DingTalkStreamClientFactory;
   logger?: Logger;
   topic?: string;

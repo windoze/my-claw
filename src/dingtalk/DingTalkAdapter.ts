@@ -3,10 +3,12 @@
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream-sdk-nodejs";
 
 import { AppError, createLogger, type Logger } from "../utils/index.js";
+import { DingTalkReplySink } from "./DingTalkReplySink.js";
 import { createDingTalkCallbackLogSample, mapDingTalkRobotMessage } from "./mapMessage.js";
 import type {
   DingTalkAdapterOptions,
   DingTalkMessageMappingWarning,
+  DingTalkReplySinkFactory,
   DingTalkRobotCallback,
   DingTalkStreamClient,
   DingTalkStreamClientFactory,
@@ -25,7 +27,7 @@ interface DebuggableDingTalkStreamClient extends DingTalkStreamClient {
 export class DingTalkAdapter {
   private readonly config: DingTalkAdapterOptions["config"];
   private readonly handler: DingTalkAdapterOptions["handler"];
-  private readonly createReplySink: DingTalkAdapterOptions["createReplySink"];
+  private readonly createReplySink: DingTalkReplySinkFactory;
   private readonly client: DingTalkStreamClient;
   private readonly logger: Logger;
   private readonly topic: string;
@@ -35,8 +37,14 @@ export class DingTalkAdapter {
   public constructor(options: DingTalkAdapterOptions) {
     this.config = options.config;
     this.handler = options.handler;
-    this.createReplySink = options.createReplySink;
     this.logger = options.logger ?? createLogger("dingtalk");
+    this.createReplySink =
+      options.createReplySink ??
+      ((context) =>
+        new DingTalkReplySink({
+          context,
+          logger: this.logger,
+        }));
     this.topic = options.topic ?? TOPIC_ROBOT;
     this.client = this.createClient(options);
     patchSdkConsoleLeaks(this.client, this.logger);
