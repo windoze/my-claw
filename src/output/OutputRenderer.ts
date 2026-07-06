@@ -3,6 +3,8 @@
 import type { AgentEvent } from "../backend/types.js";
 import type { OutputConfig } from "../config/types.js";
 import { createLogger, type Logger } from "../utils/logger.js";
+import { formatAgentErrorEvent } from "./formatErrors.js";
+import { splitMarkdown } from "./splitMarkdown.js";
 import type { ReplySink } from "./types.js";
 
 const EMPTY_OUTPUT_MESSAGE = "任务已完成，但没有文本输出。";
@@ -53,11 +55,11 @@ export class OutputRenderer {
           break;
         case "error":
           flushTextParts(textParts, messages);
-          messages.push(`执行失败：${event.message}`);
+          messages.push(formatAgentErrorEvent(event));
           break;
         case "stopped":
           flushTextParts(textParts, messages);
-          messages.push(event.message ?? DEFAULT_STOPPED_MESSAGE);
+          messages.push(DEFAULT_STOPPED_MESSAGE);
           break;
         case "tool_start":
           this.logger.debug("Agent tool started.", { tool: event.name });
@@ -69,7 +71,7 @@ export class OutputRenderer {
     }
 
     flushTextParts(textParts, messages);
-    return messages.flatMap((message) => splitByConfiguredLimit(message, this.config.maxMessageChars));
+    return messages.flatMap((message) => splitMarkdown(message, this.config.maxMessageChars));
   }
 
   /** Sends a Markdown body according to the configured output mode. */
@@ -103,20 +105,4 @@ function flushTextParts(textParts: string[], messages: string[]): void {
   if (text.trim().length > 0) {
     messages.push(text);
   }
-}
-
-/** Applies the configured hard limit until richer Markdown-aware splitting is added. */
-function splitByConfiguredLimit(message: string, maxMessageChars: number): string[] {
-  const limit = Math.max(1, maxMessageChars);
-
-  if (message.length <= limit) {
-    return [message];
-  }
-
-  const chunks: string[] = [];
-  for (let offset = 0; offset < message.length; offset += limit) {
-    chunks.push(message.slice(offset, offset + limit));
-  }
-
-  return chunks;
 }

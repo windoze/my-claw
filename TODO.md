@@ -276,7 +276,7 @@
 
 完成记录：2026-07-06 实现 `/stop` 到真实后端中断链路：`SessionManager` 现在保存当前运行任务的 `BackendSession` 和 stop 控制函数，`/stop` 在运行中请求中断并进入 `stopping`，重复 `/stop` 回复 `正在中断，请稍等。`，普通消息、`/cc`、`/close` 在中断过程中继续被拒绝；普通消息路由注册并清理当前后端控制句柄，最终在事件流 drain 完成后恢复 `idle`。`ClaudeCodeAdapter.stop()` 改为调用 SDK `Query.interrupt()`，成功中断时不强制 close，而是继续 drain 当前响应流并产出 `AgentEvent.stopped`；中断失败时记录详细日志、强制 abort/close 并向用户返回简短错误。FakeBackend 增加可等待 stop 的长任务模式，便于本地验证。已验证 `npm run typecheck`、`npm run build`、`npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`、focused stop-flow check、focused Claude adapter interrupt check 和 focused stop-failure recovery check。
 
-## T18 [TODO] 实现 Markdown 输出渲染和长消息分段
+## T18 [DONE] 实现 Markdown 输出渲染和长消息分段
 
 阶段：第一阶段，输出体验。
 
@@ -289,6 +289,8 @@
 实现细节：分段优先按段落边界切分；如果包含代码块，尽量不要在三反引号内部切分；如果无法避免，分段时补齐代码块围栏或退化为普通文本提示。
 
 验收：短输出单条发送；超过限制的长输出多条发送；代码块分段不明显破坏 Markdown；错误和中断有清晰提示。
+
+完成记录：2026-07-06 实现 Markdown 输出渲染和长消息分段：`OutputRenderer.render()` 现在聚合 `AgentEvent.text` 与 `done.result`，空输出发送 `任务已完成，但没有文本输出。`，错误事件统一格式化为 `执行失败：...`，中断事件统一格式化为 `当前 Agent 任务已中断。`；新增 `src/output/splitMarkdown.ts`，按 `output.maxMessageChars` 分段发送 Markdown，优先按段落、行和空白边界切分，并在长代码块分段时补齐 fenced code block 围栏，极小限制下退化为带提示的普通文本分段；新增 `src/output/formatErrors.ts` 统一输出错误格式。已验证 `npm run typecheck`、`npm run build`、focused built-output renderer checks（短输出、长输出、代码块、空输出、错误、中断）和 `npm run fake:message -- "/state" "/cc ." "hello fake backend" "/close"`。
 
 ## T19 [TODO] 安装并封装钉钉 Stream SDK
 
