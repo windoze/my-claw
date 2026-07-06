@@ -116,7 +116,7 @@
 
 完成记录：2026-07-06 新增 `src/messages/types.ts`、`src/output/types.ts`、`src/session/types.ts` 和 `src/backend/types.ts`，定义统一 `IncomingMessage`、`ReplySink`、`AgentEnvironment`、`AgentInput`、`AgentEvent` 及保留的 `tool_start`/`tool_finish` 事件类型；类型文件仅依赖公共类型，不导入具体实现类，为后续钉钉适配器、命令路由、SessionManager、输出渲染和后端适配器提供共享通信契约。已验证 `npm run typecheck` 和 `npm run build` 通过。
 
-## T08 [TODO] 实现 slash command 解析器
+## T08 [DONE] 实现 slash command 解析器
 
 阶段：第一阶段，命令基础。
 
@@ -129,6 +129,8 @@
 实现细节：参数解析不需要完整 shell parser，但必须支持路径中包含空格的基本场景，建议支持引号包裹，例如 `/cc "/Users/me/My Repo"`；如果暂不支持复杂引号，要在错误提示中说明。
 
 验收：`/state` 解析为命令无参数；`/cc ~/repos/foo` 解析出 `~/repos/foo`；普通文本不被识别为命令；未知 `/abc` 能被识别为未知命令。
+
+完成记录：2026-07-06 新增 `src/commands/types.ts` 和 `src/commands/parseCommand.ts`，定义第一阶段 slash command 类型、已知命令集合、未知命令和无效命令解析结果；实现 `parseCommand()`，只识别以 `/` 开头的非空文本，命令名按第一个空白切分并转小写，保留 `argsText`，识别 `/cc`、`/close`、`/state`、`/stop`、`/oc`，并把未知 `/abc` 归类为 `unknown`；实现基础参数切分，支持引号包裹的空格路径并对未闭合引号返回明确错误。同时修复 `src/utils/logger.ts` 中阻塞编译的 Bearer token 脱敏字符串语法错误。已验证 `npm run typecheck`、`npm run build`，以及 `/state`、`/cc ~/repos/foo`、普通文本、未知 `/abc`、引号空格路径和未闭合引号场景。
 
 ## T09 [TODO] 实现 CommandRouter 框架
 

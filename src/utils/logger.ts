@@ -64,7 +64,7 @@ export function redactLogString(value: string): string {
     .replace(SENSITIVE_ASSIGNMENT_PATTERN, (_match, key: string, separator: string) => {
       return `${key}${separator}${REDACTED}`;
     })
-    .replace(BEARER_TOKEN_PATTERN, `Bearer ${REDACTED}`);
+    .replace(BEARER_TOKEN_PATTERN, "Bearer [REDACTED]");
 }
 
 function writeLog(

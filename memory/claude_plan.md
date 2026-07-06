@@ -4,11 +4,11 @@ I will work from `TODO.md` as the source of truth, complete exactly the first ta
 
 ## Selected task
 
-`T07 [DONE] 定义统一消息、回复和 Agent 环境类型`
+`T08 [DONE] 实现 slash command 解析器`
 
 ## Implementation approach
 
-Define the shared internal contracts in `src/messages/types.ts`, `src/output/types.ts`, `src/session/types.ts`, and `src/backend/types.ts` without importing concrete implementation classes. Reuse existing configuration types where appropriate, keep backend support constrained to first-stage `"claude-code"`, and ensure event/input/reply structures match the TODO requirements.
+Add the command parser and command type definitions in `src/commands/parseCommand.ts` and `src/commands/types.ts`. The parser will only classify non-empty text beginning with `/`, normalize command names to lowercase, preserve the original argument string as `argsText`, recognize the first-stage commands `/cc`, `/close`, `/state`, `/stop`, and `/oc`, and return an `unknown` command classification for unsupported slash commands. It will also provide basic argument tokenization that supports quoted paths containing spaces and explicit parse errors for malformed quotes instead of silently accepting ambiguous input.
 
 ## Execution steps
 
@@ -25,4 +25,4 @@ Define the shared internal contracts in `src/messages/types.ts`, `src/output/typ
 
 ## Progress
 
-Identified T07 as the first incomplete task. The latest commit only completed T06 and did not mention relevant unfinished work. Added implementation-free shared contracts for incoming messages, reply sinks, Agent environments, Agent input, and Agent events. `npm run typecheck` and `npm run build` passed. `TODO.md` now marks T07 `[DONE]` with a completion record. Next I will commit these changes and stop.
+Identified T08 as the first incomplete task. The latest commit completed T07 and did not mention unfinished work relevant to T08. Fixed the `src/utils/logger.ts` syntax error that blocked validation, added slash command parser/type contracts, verified `npm run typecheck`, `npm run build`, and parser acceptance cases, and marked T08 `[DONE]` in `TODO.md`. Next I will commit and stop.
