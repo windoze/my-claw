@@ -1,6 +1,7 @@
 /** Coordinates Agent environment selection, project state, and runtime concurrency rules. */
 
 import type { AgentBackend, AppConfig, AgentEnvironmentConfig } from "../config/types.js";
+import { selectClaudeCodeSettings } from "../backend/claude/settings.js";
 import type { BackendSession } from "../backend/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { StateStore } from "../state/StateStore.js";
@@ -211,8 +212,11 @@ export class SessionManager {
       };
     });
 
+    const environment = this.buildCurrentEnvironment(state);
+    this.logProjectSwitch(dir, environment);
+
     return {
-      environment: this.buildCurrentEnvironment(state),
+      environment,
       state,
     };
   }
@@ -599,6 +603,37 @@ export class SessionManager {
         }),
       canAcceptNormalMessage: state.runtime.status === "idle",
     };
+  }
+
+  /** Logs project switching decisions without exposing persisted session ids. */
+  private logProjectSwitch(requestedDir: string, environment: AgentEnvironment): void {
+    const context: Record<string, unknown> = {
+      backend: environment.backend,
+      kind: environment.kind,
+      requestedDir,
+      cwd: environment.cwd,
+    };
+
+    if (environment.agent !== undefined) {
+      context.agent = environment.agent;
+    }
+
+    if (environment.model !== undefined) {
+      context.model = environment.model;
+    }
+
+    if (environment.backend === "claude-code") {
+      const settingsSelection = selectClaudeCodeSettings(environment.cwd);
+      context.claudeSettingsSource = settingsSelection.source;
+      context.claudeSettingsPath =
+        settingsSelection.settingsPath ??
+        (settingsSelection.defaultSettingsExists ? settingsSelection.defaultSettingsPath : null);
+      context.claudeProjectSettingsPath = settingsSelection.projectSettingsPath;
+      context.claudeDefaultSettingsPath = settingsSelection.defaultSettingsPath;
+      context.claudeDefaultSettingsExists = settingsSelection.defaultSettingsExists;
+    }
+
+    this.logger.info("Agent project switched.", context);
   }
 }
 

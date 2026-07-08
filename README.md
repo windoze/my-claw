@@ -87,7 +87,7 @@ npm run dev
 | 命令 | 说明 |
 | --- | --- |
 | `/state` | 查看脱敏后的运行状态、当前环境和 session 摘要。 |
-| `/cc <dir>` | 切换到允许目录内的 Claude Code 项目；路径包含空格时使用引号，例如 `/cc "/Users/me/My Repo"`。 |
+| `/cc <dir>` | 切换到允许目录内的 Claude Code 项目；若 `<dir>/.claude/settings.json` 存在，会作为 Claude Code settings 使用，否则回退到 Claude Code 默认配置；路径包含空格时使用引号，例如 `/cc "/Users/me/My Repo"`。 |
 | `/close` | 关闭当前 active project，回到默认环境，并保留项目 session 记录。 |
 | `/stop` | 当前任务运行中请求中断；空闲时会提示没有任务。 |
 | `/new` | 结束当前环境的已保存会话；下一条普通消息会开启新的 Claude Code/OpenCode 会话。 |

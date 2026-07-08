@@ -23,6 +23,7 @@ import type {
   BackendAdapter,
   BackendSession,
 } from "../types.js";
+import { selectClaudeCodeSettings } from "./settings.js";
 import type { ClaudeCodeBackendSession } from "./types.js";
 
 /** Injectable SDK query function used by production code and focused checks. */
@@ -304,6 +305,13 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
     if (environment?.model !== undefined) {
       options.model = environment.model;
+    }
+
+    if (environment?.kind === "project") {
+      const settingsSelection = selectClaudeCodeSettings(session.cwd);
+      if (settingsSelection.settingsPath !== undefined) {
+        options.settings = settingsSelection.settingsPath;
+      }
     }
 
     if (resumeSessionId !== undefined) {
