@@ -108,6 +108,7 @@ function mergeHandlers(
     close: overrides.close ?? defaults.close,
     state: overrides.state ?? defaults.state,
     stop: overrides.stop ?? defaults.stop,
+    new: overrides.new ?? defaults.new,
     oc: overrides.oc ?? defaults.oc,
     dl: overrides.dl ?? defaults.dl,
     invalid: overrides.invalid ?? defaults.invalid,

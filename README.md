@@ -90,12 +90,13 @@ npm run dev
 | `/cc <dir>` | 切换到允许目录内的 Claude Code 项目；路径包含空格时使用引号，例如 `/cc "/Users/me/My Repo"`。 |
 | `/close` | 关闭当前 active project，回到默认环境，并保留项目 session 记录。 |
 | `/stop` | 当前任务运行中请求中断；空闲时会提示没有任务。 |
+| `/new` | 结束当前环境的已保存会话；下一条普通消息会开启新的 Claude Code/OpenCode 会话。 |
 | `/allow [编号]` | Claude Code 请求工具授权时允许本次工具调用；只有一个待授权请求时可省略编号。 |
 | `/deny [编号]` | Claude Code 请求工具授权时拒绝本次工具调用；只有一个待授权请求时可省略编号。 |
 | `/oc <dir>` | 切换到允许目录内的 OpenCode 项目；路径包含空格时使用引号，例如 `/oc "/Users/me/My Repo"`。 |
 | `/dl <path>` | 发送允许目录内的本地普通文件；相对路径基于当前环境 `cwd`，路径包含空格时使用引号，例如 `/dl "docs/report.pdf"`。 |
 
-非 slash 文本消息会发送给当前环境的 Claude Code 或 OpenCode。用户发送受支持的图片或文件时，服务会通过钉钉 `messageFiles.download` 接口下载到 `.agent-dingtalk-tmp/`，并把本地临时路径、文件名、MIME 和大小追加到 Agent prompt；当前后端未使用原生附件输入。`streaming.mode` 为 `ai-card` 时，长回复会以 AI Card 持续更新，完成、中断或失败时会更新最终状态；卡片接口失败会降级为完整 Markdown 回复。任务运行中会拒绝新的普通消息和项目切换；Claude Code 工具授权请求会例外显示到钉钉，可回复 `/allow` 或 `/deny` 处理；也可以发送 `/state` 查询状态，或发送 `/stop` 请求中断当前后端任务。
+非 slash 文本消息会发送给当前环境的 Claude Code 或 OpenCode。用户发送受支持的图片或文件时，服务会通过钉钉 `messageFiles.download` 接口下载到 `.agent-dingtalk-tmp/`，并把本地临时路径、文件名、MIME 和大小追加到 Agent prompt；当前后端未使用原生附件输入。`streaming.mode` 为 `ai-card` 时，长回复会以 AI Card 持续更新，完成、中断或失败时会更新最终状态；卡片接口失败会降级为完整 Markdown 回复。任务运行中会拒绝新的普通消息、项目切换和 `/new`；Claude Code 工具授权请求会例外显示到钉钉，可回复 `/allow` 或 `/deny` 处理；也可以发送 `/state` 查询状态，或发送 `/stop` 请求中断当前后端任务。
 
 ## 安全和运维注意事项
 

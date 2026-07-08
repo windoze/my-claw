@@ -20,7 +20,7 @@ const PROJECT_BUSY_MESSAGE =
 const PROJECT_STOPPING_MESSAGE = "当前任务正在中断，暂时不能切换项目。";
 
 /** Commands whose availability is decided by the session state machine. */
-export type StatefulCommandName = "cc" | "oc" | "close" | "state" | "stop" | "dl";
+export type StatefulCommandName = "cc" | "oc" | "close" | "state" | "stop" | "new" | "dl";
 
 /** User-safe session manager error categories. */
 export type SessionManagerErrorCode =
@@ -68,6 +68,13 @@ export interface OpenProjectResult {
 export interface CloseProjectResult {
   environment: AgentEnvironment;
   closedProject: SessionEnvironmentSummary | null;
+  state: AppState;
+}
+
+/** Result returned after resetting the current backend session metadata. */
+export interface NewSessionResult {
+  environment: AgentEnvironment;
+  hadPreviousSession: boolean;
   state: AppState;
 }
 
@@ -233,6 +240,45 @@ export class SessionManager {
     return {
       environment: this.buildCurrentEnvironment(state),
       closedProject,
+      state,
+    };
+  }
+
+  /** Clears the current environment's saved session id so the next prompt starts fresh. */
+  public async startNewSession(): Promise<NewSessionResult> {
+    let hadPreviousSession = false;
+    const state = await this.stateStore.update((currentState) => {
+      assertProjectMutationAllowed(currentState.runtime.status);
+
+      const environment = this.buildCurrentEnvironment(currentState);
+      hadPreviousSession = environment.sessionId !== undefined;
+
+      if (environment.kind === "default") {
+        return {
+          ...currentState,
+          defaultSession: { sessionId: null },
+        };
+      }
+
+      const existingProject = getKnownProject(currentState, environment);
+      const knownProject: KnownProjectState = {
+        ...existingProject,
+        backend: environment.backend,
+        cwd: environment.cwd,
+        ...(environment.agent ? { agent: environment.agent } : {}),
+        ...(environment.model ? { model: environment.model } : {}),
+        sessionId: null,
+      };
+
+      return {
+        ...currentState,
+        knownProjects: setKnownProject(currentState.knownProjects, knownProject),
+      };
+    });
+
+    return {
+      environment: this.buildCurrentEnvironment(state),
+      hadPreviousSession,
       state,
     };
   }

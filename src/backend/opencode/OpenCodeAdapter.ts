@@ -86,7 +86,7 @@ export class OpenCodeAdapter implements BackendAdapter {
     assertOpenCodeEnvironment(environment);
 
     const context = await this.getOrCreateProjectContext(environment.cwd);
-    const sessionId = environment.sessionId ?? context.sessionId ?? (await this.createSession(context));
+    const sessionId = environment.sessionId ?? (await this.createSession(context));
     context.sessionId = sessionId;
 
     const session: OpenCodeBackendSession = {

@@ -50,10 +50,11 @@ export interface SessionCommandHandlersOptions {
   stopCurrentTask?: StopCommandCallback;
 }
 
-const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/oc、/dl";
+const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/new、/oc、/dl";
 const CC_USAGE = '用法：/cc <dir>。如果路径包含空格，请使用引号，例如：/cc "/Users/me/My Repo"。';
 const OC_USAGE = '用法：/oc <dir>。如果路径包含空格，请使用引号，例如：/oc "/Users/me/My Repo"。';
 const DL_USAGE = '用法：/dl <path>。相对路径基于当前环境目录；路径包含空格时请使用引号，例如：/dl "docs/report.pdf"。';
+const NEW_USAGE = "用法：/new。结束当前环境的会话，下一条普通消息将开启新会话。";
 
 /** Creates the first-stage handler set used by CommandRouter by default. */
 export function createDefaultCommandHandlers(): CommandHandlers {
@@ -62,6 +63,7 @@ export function createDefaultCommandHandlers(): CommandHandlers {
     close: handleSessionCommandPlaceholder,
     state: handleStatePlaceholder,
     stop: handleSessionCommandPlaceholder,
+    new: handleSessionCommandPlaceholder,
     oc: handleOpenCodePlaceholder,
     dl: handleFileDownloadPlaceholder,
     invalid: handleInvalidCommand,
@@ -81,6 +83,7 @@ export function createSessionCommandHandlers(
     state: (context) => handleStateCommand(context, options.sessionManager),
     stop: (context) =>
       handleStopCommand(context, options.sessionManager, options.stopCurrentTask),
+    new: (context) => handleNewSessionCommand(context, options.sessionManager),
     oc: (context) => handleOpenCodeProjectCommand(context, options.sessionManager),
     dl:
       fileService === undefined
@@ -216,6 +219,27 @@ export async function handleCloseProjectCommand(
   );
 }
 
+/** Handles `/new` by clearing the current environment's saved backend session id. */
+export async function handleNewSessionCommand(
+  { command, replySink }: CommandHandlerContext<KnownCommandParseResult>,
+  sessionManager: SessionManager,
+): Promise<void> {
+  await sessionManager.assertCanAcceptCommand("new");
+
+  if (command.args.length > 0) {
+    throw new UserFacingError("COMMAND_USAGE_INVALID", NEW_USAGE);
+  }
+
+  const result = await sessionManager.startNewSession();
+  const backendName = formatBackendName(result.environment.backend);
+  const prefix = result.hadPreviousSession
+    ? "已结束当前会话"
+    : "当前没有已保存的会话";
+  await replySink.sendText(
+    `${prefix}；下一条普通消息将开启新的 ${backendName} 会话：${result.environment.cwd}`,
+  );
+}
+
 /** Handles `/stop` state decisions and invokes the injected backend stop callback when available. */
 export async function handleStopCommand(
   context: CommandHandlerContext<KnownCommandParseResult>,
@@ -284,4 +308,15 @@ function readSinglePathArgument(
   }
 
   return command.args[0] ?? null;
+}
+
+function formatBackendName(backend: string): string {
+  switch (backend) {
+    case "claude-code":
+      return "Claude Code";
+    case "opencode":
+      return "OpenCode";
+    default:
+      return backend;
+  }
 }
