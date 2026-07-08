@@ -121,5 +121,6 @@ export interface DingTalkAdapterOptions {
   logger?: Logger;
   topic?: string;
   keepAlive?: boolean;
+  autoReconnect?: boolean;
   ua?: string;
 }

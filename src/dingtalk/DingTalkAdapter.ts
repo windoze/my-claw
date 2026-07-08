@@ -24,11 +24,17 @@ import type {
 } from "./types.js";
 
 const DEFAULT_KEEP_ALIVE = true;
+const DEFAULT_AUTO_RECONNECT = false;
 const DEFAULT_USER_AGENT = "my-claw-dingtalk-agent";
+const HEALTH_CHECK_INTERVAL_MS = 5_000;
+const RECONNECT_INITIAL_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 60_000;
 
 interface DebuggableDingTalkStreamClient extends DingTalkStreamClient {
   debug?: boolean;
+  connected?: boolean;
   onDownStream?: (data: string) => void;
+  registered?: boolean;
 }
 
 /** Connects to DingTalk Stream Mode and forwards robot messages to the injected handler. */
@@ -44,7 +50,12 @@ export class DingTalkAdapter {
   private readonly topic: string;
   private readonly lifecycleCleanup: StreamLifecycleCleanup;
   private callbackRegistered = false;
+  private connecting = false;
+  private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private started = false;
+  private stopping = false;
 
   public constructor(options: DingTalkAdapterOptions) {
     this.config = options.config;
@@ -92,6 +103,7 @@ export class DingTalkAdapter {
       return;
     }
 
+    this.stopping = false;
     this.registerRobotCallback();
 
     try {
@@ -99,8 +111,9 @@ export class DingTalkAdapter {
         "Connecting DingTalk Stream adapter.",
         createConnectionLogContext(this.client, this.topic),
       );
-      await connectWithoutSdkConsoleLog(this.client, this.logger);
+      await this.connectClient();
       this.started = true;
+      this.startHealthCheck();
       this.logger.info(
         "DingTalk Stream adapter started.",
         createConnectionLogContext(this.client, this.topic),
@@ -126,7 +139,10 @@ export class DingTalkAdapter {
       return;
     }
 
-    this.client.disconnect();
+    this.stopping = true;
+    this.clearReconnectTimer();
+    this.stopHealthCheck();
+    this.disconnectClient("stop");
     this.started = false;
     this.logger.info("DingTalk Stream adapter stopped.", { topic: this.topic });
   }
@@ -143,6 +159,7 @@ export class DingTalkAdapter {
     return factory({
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
+      autoReconnect: options.autoReconnect ?? DEFAULT_AUTO_RECONNECT,
       keepAlive: options.keepAlive ?? DEFAULT_KEEP_ALIVE,
       ua: options.ua ?? DEFAULT_USER_AGENT,
     });
@@ -163,10 +180,159 @@ export class DingTalkAdapter {
     void this.processRobotCallback(callback).catch((error: unknown) => {
       this.logger.error("DingTalk robot callback handling failed.", {
         error,
-        callbackMessageId: callback.headers.messageId,
-        topic: callback.headers.topic,
+        callbackMessageId: callback.headers?.messageId,
+        topic: callback.headers?.topic,
       });
     });
+  }
+
+  private async connectClient(): Promise<void> {
+    if (this.connecting) {
+      this.logger.warn("DingTalk Stream connection attempt is already in progress.", {
+        topic: this.topic,
+      });
+      return;
+    }
+
+    this.connecting = true;
+
+    try {
+      await connectWithoutSdkConsoleLog(this.client, this.logger);
+    } finally {
+      this.connecting = false;
+      if (this.stopping) {
+        this.disconnectClient("stopped-during-connect");
+      }
+    }
+  }
+
+  private startHealthCheck(): void {
+    if (this.healthCheckTimer !== undefined) {
+      return;
+    }
+
+    if (readClientStatus(this.client).observable === false) {
+      this.logger.warn("DingTalk Stream health check disabled; client status is not observable.", {
+        topic: this.topic,
+      });
+      return;
+    }
+
+    this.healthCheckTimer = setInterval(() => {
+      this.checkConnectionHealth();
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckTimer === undefined) {
+      return;
+    }
+
+    clearInterval(this.healthCheckTimer);
+    this.healthCheckTimer = undefined;
+  }
+
+  private checkConnectionHealth(): void {
+    if (!this.started || this.stopping) {
+      return;
+    }
+
+    const status = readClientStatus(this.client);
+
+    if (status.observable === false) {
+      return;
+    }
+
+    if (status.connected === true) {
+      this.reconnectAttempt = 0;
+      return;
+    }
+
+    if (status.connected !== false) {
+      return;
+    }
+
+    if (this.connecting || this.reconnectTimer !== undefined) {
+      return;
+    }
+
+    this.logger.warn("DingTalk Stream connection is unhealthy; scheduling reconnect.", {
+      ...createConnectionLogContext(this.client, this.topic),
+      reconnectDelayMs: this.getReconnectDelayMs(),
+      reconnectStrategy: "adapter-health-check",
+    });
+    this.scheduleReconnect("health-check");
+  }
+
+  private scheduleReconnect(reason: string): void {
+    if (!this.started || this.stopping || this.reconnectTimer !== undefined) {
+      return;
+    }
+
+    const delayMs = this.getReconnectDelayMs();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.reconnect(reason);
+    }, delayMs);
+  }
+
+  private async reconnect(reason: string): Promise<void> {
+    if (!this.started || this.stopping) {
+      return;
+    }
+
+    this.reconnectAttempt += 1;
+    this.logger.warn("Reconnecting DingTalk Stream adapter.", {
+      ...createConnectionLogContext(this.client, this.topic),
+      reason,
+      reconnectAttempt: this.reconnectAttempt,
+    });
+
+    try {
+      this.disconnectClient("reconnect");
+      await this.connectClient();
+      this.logger.info(
+        "DingTalk Stream adapter reconnect attempt initiated.",
+        createConnectionLogContext(this.client, this.topic),
+      );
+    } catch (error: unknown) {
+      const nextReconnectDelayMs = this.getReconnectDelayMs();
+      this.logger.error("DingTalk Stream reconnect attempt failed; will retry.", {
+        ...createConnectFailureLogContext(error, this.client, this.topic),
+        reason,
+        reconnectAttempt: this.reconnectAttempt,
+        nextReconnectDelayMs,
+      });
+      this.scheduleReconnect("retry");
+    }
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer === undefined) {
+      return;
+    }
+
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+  }
+
+  private disconnectClient(reason: string): void {
+    try {
+      this.client.disconnect();
+    } catch (error: unknown) {
+      this.logger.error("DingTalk Stream disconnect failed.", {
+        error,
+        reason,
+        topic: this.topic,
+      });
+    }
+  }
+
+  private getReconnectDelayMs(): number {
+    return Math.min(
+      RECONNECT_INITIAL_DELAY_MS * 2 ** this.reconnectAttempt,
+      RECONNECT_MAX_DELAY_MS,
+    );
   }
 
   private async processRobotCallback(callback: DingTalkRobotCallback): Promise<void> {
@@ -239,7 +405,27 @@ function patchSdkConsoleLeaks(client: DingTalkStreamClient, logger: Logger): voi
 
   const originalOnDownStream = sdkClient.onDownStream.bind(sdkClient);
   sdkClient.onDownStream = (data: string): void => {
-    runWithoutSdkConsoleLog(logger, () => originalOnDownStream(data));
+    try {
+      runWithoutSdkConsoleLog(logger, () => originalOnDownStream(data));
+    } catch (error: unknown) {
+      logger.error("DingTalk SDK downstream handling failed; frame ignored.", {
+        error,
+        dataLength: data.length,
+      });
+    }
+  };
+}
+
+function readClientStatus(client: DingTalkStreamClient): {
+  connected?: boolean;
+  observable: boolean;
+  registered?: boolean;
+} {
+  const sdkClient = client as DebuggableDingTalkStreamClient;
+  return {
+    connected: sdkClient.connected,
+    observable: sdkClient.connected !== undefined || sdkClient.registered !== undefined,
+    registered: sdkClient.registered,
   };
 }
 

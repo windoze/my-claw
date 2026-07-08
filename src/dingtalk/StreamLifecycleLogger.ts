@@ -81,9 +81,9 @@ function attachClientEventLogging(
   topic: string,
 ): StreamLifecycleCleanup {
   if (typeof client.on !== "function") {
-    logger.info("DingTalk Stream SDK auto-reconnect is enabled; public close events unavailable.", {
+    logger.info("DingTalk Stream public close events unavailable.", {
       ...createConnectionLogContext(client, topic),
-      reconnectStrategy: "sdk-auto-reconnect",
+      reconnectStrategy: getReconnectStrategy(client),
     });
     return noop;
   }
@@ -92,10 +92,10 @@ function attachClientEventLogging(
     logger.info("DingTalk Stream client emitted open.", createConnectionLogContext(client, topic));
   };
   const onClose = (...args: unknown[]): void => {
-    logger.warn("DingTalk Stream client emitted close; reconnect will be handled by SDK.", {
+    logger.warn("DingTalk Stream client emitted close; reconnect will be handled by configured strategy.", {
       ...createConnectionLogContext(client, topic),
       closeArgsCount: args.length,
-      reconnectStrategy: "sdk-auto-reconnect",
+      reconnectStrategy: getReconnectStrategy(client),
     });
   };
   const onError = (error: unknown): void => {
@@ -181,9 +181,9 @@ function logSdkDebugLifecycleMessage(
   }
 
   if (normalizedMessage.includes("socket closed")) {
-    logger.warn("DingTalk Stream socket closed; SDK auto-reconnect will retry if enabled.", {
+    logger.warn("DingTalk Stream socket closed; reconnect will be handled by configured strategy.", {
       ...createConnectionLogContext(client, topic),
-      reconnectStrategy: "sdk-auto-reconnect",
+      reconnectStrategy: getReconnectStrategy(client),
     });
     return;
   }
@@ -193,7 +193,7 @@ function logSdkDebugLifecycleMessage(
     logger.warn("DingTalk Stream SDK scheduled reconnect.", {
       ...createConnectionLogContext(client, topic),
       reconnectDelayMs,
-      reconnectStrategy: "sdk-auto-reconnect",
+      reconnectStrategy: getReconnectStrategy(client),
     });
     return;
   }
@@ -225,10 +225,10 @@ function logSdkSystemLifecycleMessage(
       });
       break;
     case "disconnect":
-      logger.warn("DingTalk Stream server requested disconnect; SDK should reconnect if enabled.", {
+      logger.warn("DingTalk Stream server requested disconnect; reconnect will be handled by configured strategy.", {
         ...createConnectionLogContext(client, topic),
         connectionId: downstream.headers.connectionId,
-        reconnectStrategy: "sdk-auto-reconnect",
+        reconnectStrategy: getReconnectStrategy(client),
       });
       break;
     case "KEEPALIVE":
@@ -324,6 +324,12 @@ function parseReconnectDelayMs(message: string): number | undefined {
 
   const seconds = Number(match[1]);
   return Number.isFinite(seconds) ? Math.round(seconds * 1_000) : undefined;
+}
+
+function getReconnectStrategy(client: DingTalkStreamClient): string {
+  return client.getConfig?.().autoReconnect === false
+    ? "adapter-health-check"
+    : "sdk-auto-reconnect";
 }
 
 function readErrorCode(error: unknown): string | undefined {
