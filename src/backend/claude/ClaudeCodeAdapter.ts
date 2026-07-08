@@ -2,7 +2,9 @@
 
 import {
   query,
+  type CanUseTool,
   type Options,
+  type PermissionResult,
   type Query,
   type SDKMessage,
   type SDKResultMessage,
@@ -13,7 +15,14 @@ import type { AgentEnvironment } from "../../session/types.js";
 import { UserFacingError } from "../../utils/errors.js";
 import { createLogger, redactLogString, type Logger } from "../../utils/logger.js";
 import { formatAgentInputPrompt } from "../formatAgentInput.js";
-import type { AgentEvent, AgentInput, BackendAdapter, BackendSession } from "../types.js";
+import type {
+  AgentEvent,
+  AgentInput,
+  AgentPermissionDecision,
+  AgentPermissionHandler,
+  BackendAdapter,
+  BackendSession,
+} from "../types.js";
 import type { ClaudeCodeBackendSession } from "./types.js";
 
 /** Injectable SDK query function used by production code and focused checks. */
@@ -31,6 +40,7 @@ export type ClaudeCodeAdapterErrorCode = "CLAUDE_BACKEND_MISMATCH" | "CLAUDE_TAS
 
 interface ActiveClaudeQuery {
   abortController: AbortController;
+  permissionAbortController: AbortController;
   query?: Query;
   stopRequested: boolean;
 }
@@ -76,7 +86,11 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     assertClaudeSession(session);
 
     const abortController = new AbortController();
-    const activeQuery: ActiveClaudeQuery = { abortController, stopRequested: false };
+    const activeQuery: ActiveClaudeQuery = {
+      abortController,
+      permissionAbortController: new AbortController(),
+      stopRequested: false,
+    };
     this.activeQueries.set(session, activeQuery);
 
     try {
@@ -108,6 +122,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
       yield* this.sendQueryAttempt(session, input, activeQuery);
     } finally {
+      activeQuery.permissionAbortController.abort();
       this.activeQueries.delete(session);
     }
   }
@@ -126,7 +141,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     try {
       sdkQuery = this.queryFn({
         prompt: formatAgentInputPrompt(input),
-        options: this.buildQueryOptions(session, activeQuery.abortController, resumeSessionId),
+        options: this.buildQueryOptions(session, input, activeQuery, resumeSessionId),
       });
       activeQuery.query = sdkQuery;
 
@@ -213,6 +228,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     }
 
     activeQuery.stopRequested = true;
+    activeQuery.permissionAbortController.abort();
 
     if (activeQuery.query === undefined) {
       activeQuery.abortController.abort();
@@ -243,6 +259,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     const activeQuery = this.activeQueries.get(session);
     if (activeQuery !== undefined) {
       activeQuery.abortController.abort();
+      activeQuery.permissionAbortController.abort();
       activeQuery.query?.close();
       this.activeQueries.delete(session);
     }
@@ -253,16 +270,21 @@ export class ClaudeCodeAdapter implements BackendAdapter {
   /** Converts app config and environment selection into Claude Agent SDK options. */
   private buildQueryOptions(
     session: BackendSession,
-    abortController: AbortController,
+    input: AgentInput,
+    activeQuery: ActiveClaudeQuery,
     resumeSessionId?: string,
   ): Options {
     const environment = this.sessionEnvironments.get(session);
     const options: Options = {
-      abortController,
+      abortController: activeQuery.abortController,
       cwd: session.cwd,
       includePartialMessages: true,
       maxTurns: this.config.maxTurns,
     };
+
+    if (input.permissionHandler !== undefined) {
+      options.canUseTool = createCanUseTool(input.permissionHandler, activeQuery);
+    }
 
     if (this.config.allowedTools !== undefined) {
       options.allowedTools = [...this.config.allowedTools];
@@ -290,6 +312,87 @@ export class ClaudeCodeAdapter implements BackendAdapter {
 
     return options;
   }
+}
+
+/** Bridges Claude SDK tool-permission callbacks to the active chat handler. */
+function createCanUseTool(
+  permissionHandler: AgentPermissionHandler,
+  activeQuery: ActiveClaudeQuery,
+): CanUseTool {
+  return async (toolName, input, options): Promise<PermissionResult> => {
+    const permissionSignal = createCombinedAbortSignal(
+      options.signal,
+      activeQuery.permissionAbortController.signal,
+    );
+
+    try {
+      const decision = await permissionHandler({
+        toolName,
+        input,
+        requestId: options.requestId,
+        toolUseId: options.toolUseID,
+        signal: permissionSignal.signal,
+        ...(options.title !== undefined ? { title: options.title } : {}),
+        ...(options.displayName !== undefined ? { displayName: options.displayName } : {}),
+        ...(options.description !== undefined ? { description: options.description } : {}),
+        ...(options.decisionReason !== undefined
+          ? { decisionReason: options.decisionReason }
+          : {}),
+        ...(options.blockedPath !== undefined ? { blockedPath: options.blockedPath } : {}),
+      });
+      return mapPermissionDecision(decision, options.toolUseID);
+    } finally {
+      permissionSignal.cleanup();
+    }
+  };
+}
+
+function mapPermissionDecision(
+  decision: AgentPermissionDecision,
+  toolUseId: string,
+): PermissionResult {
+  if (decision.behavior === "allow") {
+    return {
+      behavior: "allow",
+      ...(decision.updatedInput !== undefined ? { updatedInput: decision.updatedInput } : {}),
+      toolUseID: toolUseId,
+      decisionClassification: "user_temporary",
+    };
+  }
+
+  return {
+    behavior: "deny",
+    message: decision.message ?? "用户拒绝了本次 Claude Code 工具授权。",
+    ...(decision.interrupt === true ? { interrupt: true } : {}),
+    toolUseID: toolUseId,
+    decisionClassification: "user_reject",
+  };
+}
+
+function createCombinedAbortSignal(
+  first: AbortSignal,
+  second: AbortSignal,
+): { signal: AbortSignal; cleanup(): void } {
+  const controller = new AbortController();
+
+  if (first.aborted || second.aborted) {
+    controller.abort();
+    return { signal: controller.signal, cleanup: () => undefined };
+  }
+
+  const abort = (): void => {
+    controller.abort();
+  };
+  first.addEventListener("abort", abort, { once: true });
+  second.addEventListener("abort", abort, { once: true });
+
+  return {
+    signal: controller.signal,
+    cleanup(): void {
+      first.removeEventListener("abort", abort);
+      second.removeEventListener("abort", abort);
+    },
+  };
 }
 
 /** Ensures only Claude Code environments are opened by this adapter. */

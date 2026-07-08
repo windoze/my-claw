@@ -22,6 +22,7 @@ import { FileService, TempFileStore } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import { OutputRenderer } from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
+import { PermissionPromptManager } from "./permissions/index.js";
 import { PathPolicy, SecurityGate, type SecurityGateDecision } from "./security/index.js";
 import { createSessionManager, type SessionManager } from "./session/index.js";
 import { StateStore } from "./state/index.js";
@@ -48,6 +49,7 @@ export interface HandleIncomingMessageOptions {
   outputRenderer: OutputRenderer;
   securityGate?: SecurityGate;
   attachmentResolver?: DingTalkAttachmentResolver;
+  permissionPromptManager?: PermissionPromptManager;
   logger?: Logger;
   genericErrorMessage?: string;
 }
@@ -65,6 +67,7 @@ export interface AppRuntime {
   sessionManager: SessionManager;
   backendRegistry: BackendRegistry;
   outputRenderer: OutputRenderer;
+  permissionPromptManager: PermissionPromptManager;
   fileService: FileService;
   tempFileStore: TempFileStore;
   commandRouter: CommandRouter;
@@ -108,6 +111,9 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     streaming: config.streaming,
     logger: createLogger("output"),
   });
+  const permissionPromptManager = new PermissionPromptManager({
+    logger: createLogger("permissions"),
+  });
   const fileService = new FileService({
     pathPolicy: await PathPolicy.create(config.security.downloadAllowedDirs),
     maxFileBytes: config.security.maxDownloadFileBytes,
@@ -144,6 +150,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     outputRenderer,
     securityGate,
     attachmentResolver,
+    permissionPromptManager,
     logger: createLogger("messages"),
   });
   const dingtalkAdapter = new DingTalkAdapter({
@@ -171,6 +178,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     sessionManager,
     backendRegistry,
     outputRenderer,
+    permissionPromptManager,
     fileService,
     tempFileStore,
     commandRouter,
@@ -338,6 +346,10 @@ export async function handleIncomingMessage(
     return { authorized: false, handledByCommand: false, backendEvents: [] };
   }
 
+  if (await handlePendingPermissionResponse(message, replySink, options)) {
+    return { authorized: true, handledByCommand: true, backendEvents: [] };
+  }
+
   const handledByCommand = await options.commandRouter.handle(message, replySink);
 
   if (handledByCommand) {
@@ -346,6 +358,19 @@ export async function handleIncomingMessage(
 
   const resolvedMessage = await resolveIncomingAttachments(message, options);
   return handleNormalMessage(resolvedMessage, replySink, options);
+}
+
+/** Gives pending Claude Code permission replies priority over normal busy rejection. */
+async function handlePendingPermissionResponse(
+  message: IncomingMessage,
+  replySink: ReplySink,
+  options: HandleIncomingMessageOptions,
+): Promise<boolean> {
+  if (options.permissionPromptManager === undefined) {
+    return false;
+  }
+
+  return options.permissionPromptManager.handleResponse(message, replySink);
 }
 
 /** Downloads authorized attachment metadata to local temp files before routing. */
@@ -418,6 +443,14 @@ async function handleNormalMessage(
         text: message.text,
         messageId: message.id,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+        ...(options.permissionPromptManager !== undefined
+          ? {
+              permissionHandler: options.permissionPromptManager.createHandler({
+                message,
+                replySink,
+              }),
+            }
+          : {}),
       }),
       replySink,
       {

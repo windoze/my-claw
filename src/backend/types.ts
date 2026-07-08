@@ -9,7 +9,39 @@ export interface AgentInput {
   text: string;
   messageId?: string;
   attachments?: IncomingMessageAttachment[];
+  permissionHandler?: AgentPermissionHandler;
 }
+
+/** Backend-neutral request shown to a user before a tool is allowed to run. */
+export interface AgentPermissionRequest {
+  toolName: string;
+  input: Record<string, unknown>;
+  requestId: string;
+  toolUseId: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+  signal: AbortSignal;
+}
+
+/** User decision returned to a backend permission callback. */
+export type AgentPermissionDecision =
+  | {
+      behavior: "allow";
+      updatedInput?: Record<string, unknown>;
+    }
+  | {
+      behavior: "deny";
+      message?: string;
+      interrupt?: boolean;
+    };
+
+/** Handles a backend tool-permission request through the active chat. */
+export type AgentPermissionHandler = (
+  request: AgentPermissionRequest,
+) => Promise<AgentPermissionDecision>;
 
 /** Runtime handle returned by a backend after opening an Agent environment. */
 export interface BackendSession {
