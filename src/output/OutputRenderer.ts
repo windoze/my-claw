@@ -39,6 +39,7 @@ export class OutputRenderer {
             config: this.streamingConfig,
             fallbackRenderer: this,
             logger: this.logger,
+            now: this.now,
           })
         : undefined;
   }

@@ -3,7 +3,7 @@
 import type { DWClientDownStream } from "dingtalk-stream-sdk-nodejs";
 
 import type { DingTalkConfig, StreamingConfig } from "../config/types.js";
-import type { IncomingMessage } from "../messages/types.js";
+import type { ConversationType, IncomingMessage } from "../messages/types.js";
 import type { ReplySink } from "../output/types.js";
 import type { Logger } from "../utils/logger.js";
 import type { MessageDeduper } from "./MessageDeduper.js";
@@ -73,6 +73,7 @@ export interface DingTalkReplyContext {
   messageId?: string;
   callbackMessageId?: string;
   conversationId?: string;
+  conversationType: ConversationType;
   senderId: string;
   sessionWebhook?: string;
   sessionWebhookExpiredTime?: number;

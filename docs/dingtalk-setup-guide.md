@@ -54,7 +54,7 @@
 | 机器人收发消息 | Stream 机器人回调 + 通过回调携带的 `sessionWebhook` 回复 | 始终 | 接收私聊消息、回复 text/markdown/file |
 | 上传媒体文件 | `POST /media/upload` | 使用 `/dl` 发送本地文件时 | 需要「企业会话消息 / 媒体文件」相关权限 |
 | 下载用户上传的附件 | `POST /v1.0/robot/messageFiles/download` | 用户向机器人发送图片/文件时 | 需要「机器人接收消息文件下载」相关权限 |
-| 发送 AI 互动卡片 | `POST /v1.0/im/v1.0/robot/interactiveCards/send` | 仅当 `streaming.mode = "ai-card"` | 需要互动卡片 / AI 卡片相关权限 |
+| 创建并投放 AI 卡片 | `POST /v1.0/card/instances/createAndDeliver` | 仅当 `streaming.mode = "ai-card"` | 需要互动卡片 / AI 卡片相关权限 |
 | AI 卡片流式更新 | `PUT /v1.0/card/streaming` | 仅当 `streaming.mode = "ai-card"` | 同上 |
 
 > 说明：如果你只用默认的 Markdown 输出模式，可以先不开通 AI 卡片相关权限；用到 `/dl` 发文件、
@@ -69,16 +69,12 @@
 仅当你希望使用**流式卡片输出**（配置 `streaming.mode = "ai-card"`）时才需要。
 
 1. 在钉钉[卡片平台](https://open-dev.dingtalk.com/)创建一个 **AI 卡片模板**并发布。
-2. 记录模板 ID（cardTemplateId）→ 对应配置 `streaming.templateId`。
+2. 记录完整模板 ID（cardTemplateId）→ 对应配置 `streaming.templateId`；不要填写模板名称、变量名或卡片标题。
 3. 模板必须包含以下变量，否则卡片渲染/更新会失败：
 
-   | 变量名 | 用途 |
-   |---|---|
-   | `content`（或你自定义的 `streaming.contentKey`） | 承载正文，流式更新的内容写入这里 |
-   | `title` | 标题 |
-   | `status` | 状态 |
-   | `taskId` | 任务 ID |
-   | `sessionId` | 会话 ID |
+| 变量名 | 用途 |
+|---|---|
+| `content`（或你自定义的 `streaming.contentKey`） | 承载正文，流式更新的内容写入这里 |
 
 > 若卡片发送/更新失败，服务会自动降级为完整的 Markdown 回复（`streaming.fallbackMode = "markdown"`）。
 
@@ -122,7 +118,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
   // 以下仅当使用 AI 卡片流式输出时需要
   "streaming": {
     "mode": "markdown",                                    // 改为 "ai-card" 开启卡片流式
-    "templateId": "replace-with-dingtalk-ai-card-template-id", // ai-card 模式必填：卡片模板 ID
+    "templateId": "replace-with-dingtalk-ai-card-template-id", // ai-card 模式必填：完整 cardTemplateId
     "contentKey": "content",                               // 需与卡片模板正文变量名一致
     "updateThrottleMs": 800,
     "fallbackMode": "markdown"
@@ -138,7 +134,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 | `dingtalk.clientSecret` | 应用 **Client Secret / AppSecret** | 应用凭证页 |
 | `dingtalk.robotCode` | 机器人 **RobotCode** | 机器人配置页 |
 | `dingtalk.allowedUserIds` | 目标钉钉用户 **userId** | 私聊回调日志中的 `senderStaffId`（见第 6 节） |
-| `streaming.templateId` | **AI 卡片模板 ID（cardTemplateId）** | 卡片平台 |
+| `streaming.templateId` | **AI 卡片模板 ID（cardTemplateId）**，不是变量名或模板名称 | 卡片平台 |
 | `streaming.contentKey` | AI 卡片模板正文变量名 | 卡片模板定义（默认 `content`） |
 
 > 说明：本项目**不需要**配置 Corp ID、Agent ID 或固定 Webhook URL。
@@ -155,7 +151,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 - [ ] 已添加机器人能力，消息接收模式设为 **Stream 模式**
 - [ ] 已记录机器人 **RobotCode**
 - [ ] 已开通所需接口权限（至少：机器人收发；按需：媒体上传/下载、AI 卡片）
-- [ ] （用 AI 卡片时）已创建并发布卡片模板，模板含 `content`/`title`/`status`/`taskId`/`sessionId`，并记录模板 ID
+- [ ] （用 AI 卡片时）已创建并发布卡片模板，模板含 `content`，并记录完整 cardTemplateId
 - [ ] **已发布 / 更新应用版本**，使权限与 Stream 配置生效
 - [ ] 已复制并填写 `agent-dingtalk.config.jsonc`（clientId / clientSecret / robotCode）
 - [ ] 已通过私聊 + 日志获取目标用户 userId，并填入 `allowedUserIds`

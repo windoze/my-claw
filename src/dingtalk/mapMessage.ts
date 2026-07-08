@@ -92,7 +92,13 @@ export function mapDingTalkRobotMessage(
   }
 
   const conversationType = normalizeConversationType(robotMessage.conversationType, warnings);
-  const replyContext = createReplyContext(callback, robotMessage, messageId, senderId.value);
+  const replyContext = createReplyContext(
+    callback,
+    robotMessage,
+    messageId,
+    senderId.value,
+    conversationType,
+  );
   const message: IncomingMessage = {
     ...(messageId !== undefined ? { id: messageId } : {}),
     text,
@@ -379,11 +385,13 @@ function createReplyContext(
   robotMessage: DingTalkRobotMessagePayload,
   messageId: string | undefined,
   senderId: string,
+  conversationType: ConversationType,
 ): DingTalkReplyContext {
   return {
     ...(messageId !== undefined ? { messageId } : {}),
     callbackMessageId: callback.headers.messageId,
     conversationId: readOptionalString(robotMessage.conversationId),
+    conversationType,
     senderId,
     sessionWebhook: readOptionalString(robotMessage.sessionWebhook),
     sessionWebhookExpiredTime:

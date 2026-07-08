@@ -50,7 +50,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 - `output.maxMessageChars`：单条钉钉 Markdown 回复的最大字符数，超出后会自动分段。
 - `output.progressIntervalMs`：Markdown 模式下任务运行期间定期输出中间结果的最小间隔（毫秒），默认 `60000`（1 分钟）。每次只发送距上次输出后新增的文本；该间隔内没有新增文本时不发送。设为 `0` 可关闭，恢复为仅在任务结束时回复一条。`ai-card` 流式模式不受此项影响，仍按 `streaming.updateThrottleMs` 更新卡片。
 - `streaming.mode`：默认 `markdown`，保持最终 Markdown 回复；设置为 `ai-card` 后，普通 Agent 消息会先发送钉钉 AI Card，再通过 `v1.0/card/streaming` 按节流间隔更新内容。
-- `streaming.templateId`：AI Card 模板 ID；仅在 `streaming.mode` 为 `ai-card` 时必填。模板需包含 `streaming.contentKey` 指定的内容变量，默认变量名为 `content`。
+- `streaming.templateId`：AI Card 完整 `cardTemplateId`；仅在 `streaming.mode` 为 `ai-card` 时必填。模板需包含 `streaming.contentKey` 指定的内容变量，默认变量名为 `content`。
 - `streaming.updateThrottleMs`：AI Card 更新节流间隔，默认 800ms，避免每个 token 都触发一次钉钉更新。
 - `streaming.fallbackMode`：当前支持 `markdown`；卡片创建或更新失败时会发送完整 Markdown 回复，避免最终输出丢失。
 
