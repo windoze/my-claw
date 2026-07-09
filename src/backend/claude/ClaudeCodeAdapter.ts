@@ -138,6 +138,7 @@ export class ClaudeCodeAdapter implements BackendAdapter {
     let streamedText = false;
     let terminalEventEmitted = false;
     let sdkQuery: Query | null = null;
+    const startedToolNames = new Map<string, string>();
 
     try {
       sdkQuery = this.queryFn({
@@ -168,6 +169,8 @@ export class ClaudeCodeAdapter implements BackendAdapter {
           yield { type: "text", text };
           continue;
         }
+
+        yield* emitToolEvents(sdkMessage, startedToolNames);
 
         if (sdkMessage.type === "result") {
           terminalEventEmitted = true;
@@ -460,6 +463,103 @@ function buildMissingResultEvent(wasStopped: boolean, sessionId?: string): Agent
   }
 
   return { type: "error", message: NO_RESULT_MESSAGE };
+}
+
+/**
+ * Emits tool lifecycle events derived from full assistant/user SDK messages.
+ * Assistant `tool_use` blocks become `tool_start`; matching user `tool_result`
+ * blocks become `tool_finish`. Tool-use ids are deduped so repeated partial
+ * assistant messages do not double-emit, and finishes only fire for started tools.
+ */
+function* emitToolEvents(
+  message: SDKMessage,
+  startedToolNames: Map<string, string>,
+): Generator<AgentEvent, void, void> {
+  if (message.type === "assistant") {
+    for (const block of extractToolUseBlocks(message)) {
+      if (startedToolNames.has(block.id)) {
+        continue;
+      }
+
+      startedToolNames.set(block.id, block.name);
+      yield {
+        type: "tool_start",
+        name: block.name,
+        ...(block.input !== undefined ? { input: block.input } : {}),
+      };
+    }
+    return;
+  }
+
+  if (message.type === "user") {
+    for (const toolUseId of extractToolResultIds(message)) {
+      const name = startedToolNames.get(toolUseId);
+
+      if (name === undefined) {
+        continue;
+      }
+
+      startedToolNames.delete(toolUseId);
+      yield { type: "tool_finish", name };
+    }
+  }
+}
+
+interface ToolUseBlock {
+  id: string;
+  name: string;
+  input?: unknown;
+}
+
+/** Extracts well-formed tool_use blocks from an assistant SDK message. */
+function extractToolUseBlocks(message: SDKMessage): ToolUseBlock[] {
+  if (message.type !== "assistant") {
+    return [];
+  }
+
+  const content = message.message.content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const blocks: ToolUseBlock[] = [];
+  for (const block of content) {
+    if (
+      isRecord(block) &&
+      block.type === "tool_use" &&
+      typeof block.id === "string" &&
+      typeof block.name === "string"
+    ) {
+      blocks.push({ id: block.id, name: block.name, input: block.input });
+    }
+  }
+
+  return blocks;
+}
+
+/** Extracts tool_use ids referenced by tool_result blocks in a user SDK message. */
+function extractToolResultIds(message: SDKMessage): string[] {
+  if (message.type !== "user") {
+    return [];
+  }
+
+  const content = message.message.content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const ids: string[] = [];
+  for (const block of content) {
+    if (
+      isRecord(block) &&
+      block.type === "tool_result" &&
+      typeof block.tool_use_id === "string"
+    ) {
+      ids.push(block.tool_use_id);
+    }
+  }
+
+  return ids;
 }
 
 /** Extracts streaming assistant text deltas from partial SDK events. */

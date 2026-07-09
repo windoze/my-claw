@@ -31,9 +31,11 @@ export interface CardStreamingRendererOptions {
 }
 
 const CARD_TITLE = "Agent 回复";
-const INITIAL_CARD_CONTENT = "任务已开始，等待 Agent 输出…";
+const EMPTY_CARD_CONTENT = "任务已完成，但没有文本输出。";
 const TOOL_PROGRESS_HEADER = "任务仍在运行，正在处理工具调用：";
 const MAX_TOOL_PROGRESS_LINES = 6;
+/** Tools that surface an out-of-band prompt and therefore split the card stream. */
+const INTERACTIVE_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode"]);
 const OUT_TRACK_ID_PREFIX = "agent";
 const MAX_OUT_TRACK_ID_LENGTH = 64;
 const OUT_TRACK_ID_RANDOM_CHARS = 16;
@@ -59,7 +61,14 @@ export class CardStreamingRenderer {
     this.createId = options.createId ?? randomUUID;
   }
 
-  /** Streams events into an AI Card, falling back to final Markdown if card APIs fail. */
+  /**
+   * Streams events into AI Cards, falling back to final Markdown if card APIs fail.
+   *
+   * Cards are created lazily on first real content (no placeholder card). When an
+   * interactive tool (AskUserQuestion / ExitPlanMode) fires, the current card is
+   * finalized and a fresh card is started for subsequent output, so out-of-band
+   * prompt/answer messages sit between the two cards in chat order.
+   */
   public async renderStream(
     eventStream: AsyncIterable<AgentEvent>,
     replySink: ReplySink,
@@ -71,36 +80,13 @@ export class CardStreamingRenderer {
       return this.renderFallback(eventStream, replySink, context);
     }
 
-    const outTrackId = createOutTrackId(context.taskId, this.createId());
-    let handle: ReplyCardStreamHandle;
-
-    try {
-      handle = await streamer.start({
-        outTrackId,
-        title: CARD_TITLE,
-        content: INITIAL_CARD_CONTENT,
-        status: "running",
-        taskId: context.taskId,
-      });
-      this.logger.info("DingTalk AI Card streaming started.", {
-        cardId: handle.cardId ?? handle.outTrackId,
-        outTrackId: handle.outTrackId,
-        taskId: context.taskId,
-      });
-    } catch (error: unknown) {
-      this.logger.warn("DingTalk AI Card creation failed; falling back to Markdown.", {
-        error,
-        outTrackId,
-        taskId: context.taskId,
-      });
-      return this.renderFallback(eventStream, replySink, context);
-    }
-
     const events: AgentEvent[] = [];
     const accumulator = new AgentEventTextAccumulator();
-    const toolProgressLines: string[] = [];
+    let toolProgressLines: string[] = [];
+    let handle: ReplyCardStreamHandle | undefined;
+    let publishedBaseline = 0;
+    let lastSentContent = "";
     let lastUpdateAt = this.now();
-    let lastSentContent = INITIAL_CARD_CONTENT;
     let cardFailed = false;
 
     for await (const event of eventStream) {
@@ -108,19 +94,52 @@ export class CardStreamingRenderer {
       accumulator.append(event, this.logger);
       appendToolProgressLine(toolProgressLines, event);
 
-      if (
-        !cardFailed &&
-        accumulator.status === "running" &&
-        this.shouldSendThrottledUpdate(lastUpdateAt)
-      ) {
-        const content = createCardContent(accumulator, toolProgressLines, {
-          includeEmpty: false,
-        });
+      if (cardFailed) {
+        continue;
+      }
 
-        if (content === lastSentContent) {
-          continue;
+      // An interactive tool sends an out-of-band prompt; close the current card and
+      // start a fresh segment so post-interaction output lands on a new card below it.
+      if (event.type === "tool_start" && isInteractiveTool(event.name)) {
+        if (handle !== undefined) {
+          const content = segmentContent(accumulator, publishedBaseline, toolProgressLines, {
+            isFinal: true,
+          });
+          const updated = await this.tryUpdateCard(streamer, handle, accumulator, context, {
+            content: content ?? EMPTY_CARD_CONTENT,
+            isFinal: true,
+          });
+          cardFailed = !updated;
         }
 
+        publishedBaseline = accumulator.toMarkdown().length;
+        handle = undefined;
+        toolProgressLines = [];
+        lastSentContent = "";
+        continue;
+      }
+
+      if (accumulator.status !== "running") {
+        continue;
+      }
+
+      const content = segmentContent(accumulator, publishedBaseline, toolProgressLines, {
+        isFinal: false,
+      });
+
+      if (content === undefined) {
+        continue;
+      }
+
+      if (handle === undefined) {
+        handle = await this.startCard(streamer, context, content);
+        cardFailed = handle === undefined;
+        lastSentContent = content;
+        lastUpdateAt = this.now();
+        continue;
+      }
+
+      if (this.shouldSendThrottledUpdate(lastUpdateAt) && content !== lastSentContent) {
         const updated = await this.tryUpdateCard(streamer, handle, accumulator, context, {
           content,
           isFinal: false,
@@ -132,29 +151,110 @@ export class CardStreamingRenderer {
     }
 
     if (!cardFailed) {
-      const content = createCardContent(accumulator, toolProgressLines, {
-        includeEmpty: true,
-      });
-      const updated = await this.tryUpdateCard(streamer, handle, accumulator, context, {
-        content,
-        isFinal: true,
-      });
-      cardFailed = !updated;
-    }
+      const outcome = await this.finalizeLastCard(
+        streamer,
+        handle,
+        accumulator,
+        publishedBaseline,
+        toolProgressLines,
+        context,
+      );
 
-    if (cardFailed) {
-      await this.fallbackRenderer.render(events, replySink, context);
+      if (outcome.status === "failed") {
+        await this.fallbackRenderer.render(events, replySink, context);
+        return events;
+      }
+
+      // Nothing was ever published and no card was closed earlier: emit empty-output text.
+      if (outcome.status === "empty" && publishedBaseline === 0) {
+        await this.fallbackRenderer.render(events, replySink, context);
+        return events;
+      }
+
+      if (outcome.status === "finalized") {
+        this.logger.info("DingTalk AI Card streaming finalized.", {
+          cardId: outcome.handle.cardId ?? outcome.handle.outTrackId,
+          outTrackId: outcome.handle.outTrackId,
+          taskId: context.taskId,
+          sessionId: accumulator.sessionId,
+          status: toCardStatus(accumulator.status, true),
+        });
+      }
+
       return events;
     }
 
-    this.logger.info("DingTalk AI Card streaming finalized.", {
-      cardId: handle.cardId ?? handle.outTrackId,
-      outTrackId: handle.outTrackId,
-      taskId: context.taskId,
-      sessionId: accumulator.sessionId,
-      status: toCardStatus(accumulator.status, true),
-    });
+    await this.fallbackRenderer.render(events, replySink, context);
     return events;
+  }
+
+  /** Finalizes the trailing segment into its card, creating one lazily if needed. */
+  private async finalizeLastCard(
+    streamer: NonNullable<ReplySink["cardStreamer"]>,
+    handle: ReplyCardStreamHandle | undefined,
+    accumulator: AgentEventTextAccumulator,
+    publishedBaseline: number,
+    toolProgressLines: readonly string[],
+    context: OutputRenderContext,
+  ): Promise<FinalizeOutcome> {
+    const content = segmentContent(accumulator, publishedBaseline, toolProgressLines, {
+      isFinal: true,
+    });
+
+    if (handle === undefined) {
+      if (content === undefined) {
+        return { status: "empty" };
+      }
+
+      const created = await this.startCard(streamer, context, content);
+      if (created === undefined) {
+        return { status: "failed" };
+      }
+
+      const updated = await this.tryUpdateCard(streamer, created, accumulator, context, {
+        content,
+        isFinal: true,
+      });
+      return updated ? { status: "finalized", handle: created } : { status: "failed" };
+    }
+
+    const updated = await this.tryUpdateCard(streamer, handle, accumulator, context, {
+      content: content ?? EMPTY_CARD_CONTENT,
+      isFinal: true,
+    });
+    return updated ? { status: "finalized", handle } : { status: "failed" };
+  }
+
+  /** Creates a fresh AI Card seeded with real content, or `undefined` on failure. */
+  private async startCard(
+    streamer: NonNullable<ReplySink["cardStreamer"]>,
+    context: OutputRenderContext,
+    content: string,
+  ): Promise<ReplyCardStreamHandle | undefined> {
+    const outTrackId = createOutTrackId(context.taskId, this.createId());
+
+    try {
+      const handle = await streamer.start({
+        outTrackId,
+        title: CARD_TITLE,
+        content,
+        status: "running",
+        taskId: context.taskId,
+      });
+      this.logger.info("DingTalk AI Card streaming started.", {
+        cardId: handle.cardId ?? handle.outTrackId,
+        outTrackId: handle.outTrackId,
+        taskId: context.taskId,
+      });
+      return handle;
+    } catch (error: unknown) {
+      this.logger.warn("DingTalk AI Card creation failed; falling back to Markdown.", {
+        error,
+        outTrackId,
+        taskId: context.taskId,
+      });
+      return undefined;
+    }
   }
 
   private shouldSendThrottledUpdate(lastUpdateAt: number): boolean {
@@ -218,22 +318,41 @@ function appendToolProgressLine(lines: string[], event: AgentEvent): void {
   }
 }
 
-function createCardContent(
-  accumulator: AgentEventTextAccumulator,
-  toolProgressLines: readonly string[],
-  options: { includeEmpty: boolean },
-): string {
-  const markdown = accumulator.toMarkdown({ includeEmpty: options.includeEmpty });
+/** Outcome of finalizing the trailing card segment. */
+type FinalizeOutcome =
+  | { status: "finalized"; handle: ReplyCardStreamHandle }
+  | { status: "empty" }
+  | { status: "failed" };
 
-  if (markdown.trim().length > 0) {
-    return markdown;
+/** Reports whether a tool surfaces an out-of-band prompt that should split the card. */
+function isInteractiveTool(name: string): boolean {
+  return INTERACTIVE_TOOL_NAMES.has(name.trim());
+}
+
+/**
+ * Builds the content for the current card segment: the accumulated Markdown beyond
+ * `publishedBaseline` (text belonging to earlier, already-finalized cards). Falls back
+ * to a tool-progress placeholder while a tool runs before any text, and returns
+ * `undefined` when there is nothing to display yet for this segment.
+ */
+function segmentContent(
+  accumulator: AgentEventTextAccumulator,
+  publishedBaseline: number,
+  toolProgressLines: readonly string[],
+  options: { isFinal: boolean },
+): string | undefined {
+  const full = accumulator.toMarkdown();
+  const segment = full.slice(publishedBaseline).trim();
+
+  if (segment.length > 0) {
+    return segment;
   }
 
-  if (accumulator.status === "running" && toolProgressLines.length > 0) {
+  if (!options.isFinal && toolProgressLines.length > 0) {
     return [TOOL_PROGRESS_HEADER, "", ...toolProgressLines].join("\n");
   }
 
-  return INITIAL_CARD_CONTENT;
+  return undefined;
 }
 
 function normalizeToolName(name: string): string {

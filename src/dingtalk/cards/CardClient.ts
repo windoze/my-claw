@@ -120,7 +120,7 @@ export class DingTalkCardClient {
       {
         cardTemplateId: templateId,
         outTrackId: input.outTrackId,
-        cardData: { cardParamMap },
+        cardData: { cardParamMap, config: { autoLayout: true } },
         callbackType: CARD_CALLBACK_TYPE_STREAM,
         openSpaceId: openSpace.openSpaceId,
         userIdType: 1,
