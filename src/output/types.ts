@@ -7,6 +7,9 @@ export interface ReplyFile {
   sizeBytes: number;
 }
 
+/** Local image selected for inline delivery back to the current chat. */
+export type ReplyImage = ReplyFile;
+
 /** User-visible lifecycle status shown in a streaming card. */
 export type ReplyCardStreamStatus = "running" | "done" | "stopped" | "error";
 
@@ -53,5 +56,6 @@ export interface ReplySink {
   sendText(text: string): Promise<void>;
   sendMarkdown(markdown: string): Promise<void>;
   sendFile(file: ReplyFile): Promise<void>;
+  sendImage(image: ReplyImage): Promise<void>;
   cardStreamer?: ReplyCardStreamer;
 }

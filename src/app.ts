@@ -20,7 +20,11 @@ import {
 } from "./dingtalk/index.js";
 import { FileService, TempFileStore } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
-import { OutputRenderer } from "./output/index.js";
+import {
+  extractLocalRefs,
+  OutputRenderer,
+  renderAgentEventMessages,
+} from "./output/index.js";
 import type { ReplySink } from "./output/types.js";
 import { PermissionPromptManager } from "./permissions/index.js";
 import { PathPolicy, SecurityGate, type SecurityGateDecision } from "./security/index.js";
@@ -50,6 +54,7 @@ export interface HandleIncomingMessageOptions {
   securityGate?: SecurityGate;
   attachmentResolver?: DingTalkAttachmentResolver;
   permissionPromptManager?: PermissionPromptManager;
+  fileService?: FileService;
   logger?: Logger;
   genericErrorMessage?: string;
 }
@@ -151,6 +156,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     securityGate,
     attachmentResolver,
     permissionPromptManager,
+    fileService,
     logger: createLogger("messages"),
   });
   const dingtalkAdapter = new DingTalkAdapter({
@@ -458,6 +464,7 @@ async function handleNormalMessage(
       },
     );
     await saveTerminalSessionId(events, environment, options.sessionManager);
+    await emitReferencedAttachments(events, message, replySink, environment.cwd, options);
   } catch (error: unknown) {
     await replyNormalMessageError(error, message, replySink, handlerLogger, options);
   } finally {
@@ -524,6 +531,58 @@ function formatUserFacingNormalMessageError(error: UserFacingError): string {
   }
 
   return error.safeMessage ?? error.message;
+}
+
+/**
+ * Best-effort delivery of local files the Agent referenced in its Markdown reply.
+ *
+ * Rebuilds the reply text, extracts local image/file references, and sends each one
+ * as a standalone DingTalk image/file message reusing FileService (PathPolicy bounds,
+ * size limits, image/file routing). Every failure is swallowed and logged so a bad
+ * reference never turns into a user-facing error or interrupts the reply flow.
+ */
+async function emitReferencedAttachments(
+  events: readonly AgentEvent[],
+  message: IncomingMessage,
+  replySink: ReplySink,
+  baseDir: string,
+  options: HandleIncomingMessageOptions,
+): Promise<void> {
+  const fileService = options.fileService;
+
+  if (fileService === undefined) {
+    return;
+  }
+
+  const handlerLogger = options.logger ?? createLogger("messages");
+  const markdown = renderAgentEventMessages(events, handlerLogger).join("\n\n");
+  const { paths, dropped } = extractLocalRefs(markdown);
+
+  if (dropped > 0) {
+    handlerLogger.warn("Dropped referenced attachments over the per-reply limit.", {
+      messageId: message.id,
+      senderId: message.senderId,
+      dropped,
+    });
+  }
+
+  for (const inputPath of paths) {
+    try {
+      await fileService.sendLocalFile({
+        inputPath,
+        baseDir,
+        senderId: message.senderId,
+        replySink,
+      });
+    } catch (error: unknown) {
+      handlerLogger.warn("Skipped referenced attachment delivery.", {
+        error,
+        messageId: message.id,
+        senderId: message.senderId,
+        inputPath,
+      });
+    }
+  }
 }
 
 /** Persists the latest backend session id emitted by a terminal event. */

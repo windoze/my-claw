@@ -6,6 +6,7 @@ import type {
   ReplyCardStreamStart,
   ReplyCardStreamUpdate,
   ReplyFile,
+  ReplyImage,
   ReplySink,
 } from "../output/types.js";
 
@@ -30,6 +31,10 @@ export type FakeReplyCall =
       file: ReplyFile;
     }
   | {
+      type: "image";
+      image: ReplyImage;
+    }
+  | {
       type: "card_start";
       input: ReplyCardStreamStart;
       handle: ReplyCardStreamHandle;
@@ -46,6 +51,7 @@ export class FakeReplySink implements ReplySink {
   public readonly textReplies: string[] = [];
   public readonly markdownReplies: string[] = [];
   public readonly fileReplies: ReplyFile[] = [];
+  public readonly imageReplies: ReplyImage[] = [];
   public readonly cardStarts: ReplyCardStreamStart[] = [];
   public readonly cardUpdates: ReplyCardStreamUpdate[] = [];
   public readonly cardStreamer: ReplyCardStreamer;
@@ -79,6 +85,12 @@ export class FakeReplySink implements ReplySink {
   public async sendFile(file: ReplyFile): Promise<void> {
     this.fileReplies.push(file);
     this.calls.push({ type: "file", file });
+  }
+
+  /** Stores an image reply without sending it to DingTalk. */
+  public async sendImage(image: ReplyImage): Promise<void> {
+    this.imageReplies.push(image);
+    this.calls.push({ type: "image", image });
   }
 
   /** Stores a fake card start and returns a deterministic card handle. */
@@ -117,6 +129,7 @@ export class FakeReplySink implements ReplySink {
     this.textReplies.length = 0;
     this.markdownReplies.length = 0;
     this.fileReplies.length = 0;
+    this.imageReplies.length = 0;
     this.cardStarts.length = 0;
     this.cardUpdates.length = 0;
     this.cardUpdateCount = 0;
@@ -135,5 +148,10 @@ export class FakeReplySink implements ReplySink {
   /** Returns file reply descriptors in the order they were sent. */
   public getFileReplies(): ReplyFile[] {
     return [...this.fileReplies];
+  }
+
+  /** Returns image reply descriptors in the order they were sent. */
+  public getImageReplies(): ReplyImage[] {
+    return [...this.imageReplies];
   }
 }

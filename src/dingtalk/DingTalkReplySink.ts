@@ -4,13 +4,16 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
 import type { DingTalkConfig } from "../config/types.js";
-import type { ReplyCardStreamer, ReplyFile, ReplySink } from "../output/types.js";
+import type { ReplyCardStreamer, ReplyFile, ReplyImage, ReplySink } from "../output/types.js";
 import { AppError, createLogger, type Logger } from "../utils/index.js";
 import type { DingTalkReplyContext } from "./types.js";
 
 type WebhookFetch = typeof fetch;
 
 type DingTalkReplyMessageType = "text" | "markdown" | "file";
+
+/** DingTalk media upload categories accepted by the /media/upload endpoint. */
+type DingTalkMediaType = "file" | "image";
 
 interface DingTalkReplySinkOptions {
   context: DingTalkReplyContext;
@@ -40,7 +43,9 @@ interface DingTalkMarkdownPayload {
 interface DingTalkFilePayload {
   msgtype: "file";
   file: {
-    media_id: string;
+    mediaId: string;
+    fileName: string;
+    fileType: string;
   };
 }
 
@@ -94,12 +99,12 @@ export class DingTalkFileClient {
     this.now = options.now ?? Date.now;
   }
 
-  /** Uploads a local regular file and returns the media id DingTalk expects in file messages. */
-  public async uploadFile(file: ReplyFile): Promise<string> {
+  /** Uploads a local file or image and returns the media id DingTalk expects in messages. */
+  public async uploadFile(file: ReplyFile, mediaType: DingTalkMediaType = "file"): Promise<string> {
     const accessToken = await this.getAccessToken();
     const uploadUrl = new URL(MEDIA_UPLOAD_URL);
     uploadUrl.searchParams.set("access_token", accessToken);
-    uploadUrl.searchParams.set("type", "file");
+    uploadUrl.searchParams.set("type", mediaType);
     const multipart = await createMultipartFileBody(file);
 
     try {
@@ -272,7 +277,30 @@ export class DingTalkReplySink implements ReplySink {
     await this.sendPayload("file", {
       msgtype: "file",
       file: {
-        media_id: mediaId,
+        mediaId,
+        fileName: file.name,
+        fileType: extractFileType(file.name),
+      },
+    });
+  }
+
+  /**
+   * Uploads a local image to DingTalk and renders it inline via a Markdown message.
+   *
+   * The session webhook's `image` msgtype only accepts a public `picURL`, which local
+   * files lack. DingTalk instead lets an uploaded image `mediaId` stand in for a URL
+   * inside Markdown, so images are delivered as `![alt](mediaId)`.
+   */
+  public async sendImage(image: ReplyImage): Promise<void> {
+    const fileClient = this.fileClient ?? this.createFileClient();
+    const mediaId = await fileClient.uploadFile(image, "image");
+    const altText = escapeMarkdownImageAlt(image.name);
+
+    await this.sendPayload("markdown", {
+      msgtype: "markdown",
+      markdown: {
+        title: truncateTitle(image.name),
+        text: `![${altText}](${mediaId})`,
       },
     });
   }
@@ -470,6 +498,17 @@ function stripMarkdownInlineSyntax(text: string): string {
     .replace(/[*_`~>#-]/g, "")
     .replace(/\[(?<label>[^\]]+)\]\([^)]+\)/g, "$<label>")
     .trim();
+}
+
+/** Derives DingTalk's required `fileType` (extension without the dot) from a file name. */
+function extractFileType(fileName: string): string {
+  const extension = fileName.slice(fileName.lastIndexOf(".") + 1).trim().toLowerCase();
+  return extension.length > 0 && extension.length < fileName.length ? extension : "";
+}
+
+/** Escapes characters that would break the alt text of an inline Markdown image. */
+function escapeMarkdownImageAlt(alt: string): string {
+  return alt.replace(/[\r\n]+/g, " ").replace(/[[\]]/g, "");
 }
 
 /** Keeps DingTalk Markdown titles short enough for notification surfaces. */

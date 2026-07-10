@@ -50,6 +50,17 @@ type QueryAttemptOutcome = "completed" | "resume_failed";
 
 const CLAUDE_CODE_BACKEND = "claude-code";
 const NO_RESULT_MESSAGE = "Claude Code 未返回完成结果。";
+
+/**
+ * Appended to the Claude Code preset so the Agent uses standard Markdown references
+ * for files it wants delivered. The gateway scans the reply for these local paths and
+ * sends each as a standalone DingTalk image/file message.
+ */
+const ATTACHMENT_SYSTEM_PROMPT = [
+  "当你需要把图片展示给用户时，请在回复中用 Markdown 图片语法 `![描述](绝对路径)` 引用该本地图片文件；",
+  "当你需要把生成或下载的文件发给用户时，请用 Markdown 链接语法 `[描述](绝对路径)` 引用该本地文件。",
+  "请使用文件的绝对路径，且路径需位于当前允许访问的目录内。网关会自动把这些被引用的本地文件作为独立的图片/文件消息发送给用户。",
+].join("");
 const STOPPED_MESSAGE = "当前 Agent 任务已中断。";
 const RESUME_FALLBACK_MESSAGE = "无法恢复上次 Claude Code 会话，已创建新会话。\n\n";
 
@@ -284,6 +295,11 @@ export class ClaudeCodeAdapter implements BackendAdapter {
       cwd: session.cwd,
       includePartialMessages: true,
       maxTurns: this.config.maxTurns,
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: ATTACHMENT_SYSTEM_PROMPT,
+      },
     };
 
     if (input.permissionHandler !== undefined) {

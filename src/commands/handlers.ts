@@ -198,7 +198,8 @@ export async function handleFileDownloadCommand(
     senderId: message.senderId,
     replySink,
   });
-  await replySink.sendText(`已发送文件：${result.file.name}`);
+  const kind = result.sentAsImage ? "图片" : "文件";
+  await replySink.sendText(`已发送${kind}：${result.file.name}`);
 }
 
 /** Handles `/close` by returning command routing to the configured default environment. */

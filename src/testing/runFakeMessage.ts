@@ -461,6 +461,10 @@ function formatReplyCall(call: FakeReplyCall): string {
     return `[file] ${call.file.name} (${call.file.sizeBytes} bytes) ${call.file.path}`;
   }
 
+  if (call.type === "image") {
+    return `[image] ${call.image.name} (${call.image.sizeBytes} bytes) ${call.image.path}`;
+  }
+
   if (call.type === "card_start") {
     return `[card:start] ${call.handle.cardId ?? call.handle.outTrackId}`;
   }

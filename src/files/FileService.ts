@@ -28,6 +28,7 @@ export interface SendLocalFileOptions {
 /** Successful local file delivery result. */
 export interface SendLocalFileResult {
   file: ReplyFile;
+  sentAsImage: boolean;
 }
 
 /** User-safe file download error categories. */
@@ -65,6 +66,9 @@ export class FileServiceError extends UserFacingError {
 
 const UNKNOWN_FILE_NAME = "指定文件";
 
+/** Extensions delivered as inline DingTalk images rather than plain file attachments. */
+const IMAGE_FILE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+
 /** Validates local file requests and sends allowed files through the current reply sink. */
 export class FileService {
   private readonly pathPolicy: PathPolicy;
@@ -86,16 +90,24 @@ export class FileService {
 
     try {
       file = await this.resolveAllowedFile(options.inputPath, options.baseDir);
-      await options.replySink.sendFile(file);
+      const asImage = isImageFile(file.name);
+
+      if (asImage) {
+        await options.replySink.sendImage(file);
+      } else {
+        await options.replySink.sendFile(file);
+      }
+
       this.logger.info("Local file download sent.", {
         senderId: options.senderId,
         realpath: file.path,
         sizeBytes: file.sizeBytes,
+        as: asImage ? "image" : "file",
         time: requestedAt,
         result: "sent",
       });
 
-      return { file };
+      return { file, sentAsImage: asImage };
     } catch (error: unknown) {
       if (error instanceof PathPolicyError) {
         const fileError = createPathFileServiceError(error, options.inputPath);
@@ -217,6 +229,11 @@ function formatPathPolicySafeMessage(error: PathPolicyError, fileName: string): 
 function displayFileName(inputPath: string): string {
   const baseName = path.basename(inputPath.trim());
   return baseName.length > 0 ? baseName : UNKNOWN_FILE_NAME;
+}
+
+/** Reports whether a file name should be delivered as an inline DingTalk image. */
+function isImageFile(fileName: string): boolean {
+  return IMAGE_FILE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
 }
 
 function formatBytes(bytes: number): string {
