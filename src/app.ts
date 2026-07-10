@@ -21,11 +21,12 @@ import {
 import { FileService, TempFileStore } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import {
-  extractLocalRefs,
+  extractLocalFileRefs,
+  inlineLocalImages,
   OutputRenderer,
   renderAgentEventMessages,
 } from "./output/index.js";
-import type { ReplySink } from "./output/types.js";
+import type { OutputRenderContext, ReplySink } from "./output/types.js";
 import { PermissionPromptManager } from "./permissions/index.js";
 import { PathPolicy, SecurityGate, type SecurityGateDecision } from "./security/index.js";
 import { createSessionManager, type SessionManager } from "./session/index.js";
@@ -461,6 +462,7 @@ async function handleNormalMessage(
       replySink,
       {
         taskId: message.id,
+        ...createInlineImagesContext(replySink, environment.cwd, options),
       },
     );
     await saveTerminalSessionId(events, environment, options.sessionManager);
@@ -534,10 +536,46 @@ function formatUserFacingNormalMessageError(error: UserFacingError): string {
 }
 
 /**
- * Best-effort delivery of local files the Agent referenced in its Markdown reply.
+ * Builds the inline-image injector for the render context. Local image references
+ * (`![alt](path)`) in the reply body are uploaded and rewritten to `![alt](mediaId)`
+ * so images render inline. Returns an empty object (no injector) when uploading is
+ * unavailable, in which case image references are left for attachment fallback.
+ */
+function createInlineImagesContext(
+  replySink: ReplySink,
+  baseDir: string,
+  options: HandleIncomingMessageOptions,
+): Pick<OutputRenderContext, "inlineImages"> {
+  const fileService = options.fileService;
+  const uploadImage = replySink.uploadImage?.bind(replySink);
+
+  if (fileService === undefined || uploadImage === undefined) {
+    return {};
+  }
+
+  const handlerLogger = options.logger ?? createLogger("messages");
+
+  return {
+    inlineImages: (markdown: string) =>
+      inlineLocalImages(markdown, async (localPath: string): Promise<string | null> => {
+        try {
+          const image = await fileService.resolveImageForUpload(localPath, baseDir);
+          return image === null ? null : await uploadImage(image);
+        } catch (error: unknown) {
+          handlerLogger.warn("Skipped inline image upload.", { error, localPath });
+          return null;
+        }
+      }),
+  };
+}
+
+/**
+ * Best-effort delivery of non-image files the Agent referenced with Markdown link
+ * syntax (`[text](path)`). Image syntax is handled inline by createInlineImagesContext;
+ * this covers files that cannot be embedded in Markdown.
  *
- * Rebuilds the reply text, extracts local image/file references, and sends each one
- * as a standalone DingTalk image/file message reusing FileService (PathPolicy bounds,
+ * Rebuilds the reply text, extracts local file references, and sends each as a
+ * standalone DingTalk file (or image) message reusing FileService (PathPolicy bounds,
  * size limits, image/file routing). Every failure is swallowed and logged so a bad
  * reference never turns into a user-facing error or interrupts the reply flow.
  */
@@ -556,7 +594,7 @@ async function emitReferencedAttachments(
 
   const handlerLogger = options.logger ?? createLogger("messages");
   const markdown = renderAgentEventMessages(events, handlerLogger).join("\n\n");
-  const { paths, dropped } = extractLocalRefs(markdown);
+  const { paths, dropped } = extractLocalFileRefs(markdown);
 
   if (dropped > 0) {
     handlerLogger.warn("Dropped referenced attachments over the per-reply limit.", {

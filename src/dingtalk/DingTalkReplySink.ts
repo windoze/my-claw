@@ -292,8 +292,7 @@ export class DingTalkReplySink implements ReplySink {
    * inside Markdown, so images are delivered as `![alt](mediaId)`.
    */
   public async sendImage(image: ReplyImage): Promise<void> {
-    const fileClient = this.fileClient ?? this.createFileClient();
-    const mediaId = await fileClient.uploadFile(image, "image");
+    const mediaId = await this.uploadImage(image);
     const altText = escapeMarkdownImageAlt(image.name);
 
     await this.sendPayload("markdown", {
@@ -303,6 +302,12 @@ export class DingTalkReplySink implements ReplySink {
         text: `![${altText}](${mediaId})`,
       },
     });
+  }
+
+  /** Uploads a local image and returns the DingTalk mediaId usable as a Markdown URL. */
+  public async uploadImage(image: ReplyImage): Promise<string> {
+    const fileClient = this.fileClient ?? this.createFileClient();
+    return fileClient.uploadFile(image, "image");
   }
 
   private async sendPayload(

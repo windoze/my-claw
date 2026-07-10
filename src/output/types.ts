@@ -49,6 +49,12 @@ export interface ReplyCardStreamer {
 /** Optional metadata supplied by the message router to output renderers. */
 export interface OutputRenderContext {
   taskId?: string;
+  /**
+   * Rewrites local image references (`![alt](path)`) in a Markdown body to DingTalk
+   * inline images (`![alt](mediaId)`) before the body is sent. Returns the original
+   * text unchanged when there is nothing to inline or the injector is absent.
+   */
+  inlineImages?(markdown: string): Promise<string>;
 }
 
 /** Destination capable of sending replies back to the current chat. */
@@ -57,5 +63,7 @@ export interface ReplySink {
   sendMarkdown(markdown: string): Promise<void>;
   sendFile(file: ReplyFile): Promise<void>;
   sendImage(image: ReplyImage): Promise<void>;
+  /** Uploads a local image and returns the DingTalk mediaId usable as a Markdown URL. */
+  uploadImage?(image: ReplyImage): Promise<string>;
   cardStreamer?: ReplyCardStreamer;
 }

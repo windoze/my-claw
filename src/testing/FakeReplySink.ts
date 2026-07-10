@@ -93,6 +93,11 @@ export class FakeReplySink implements ReplySink {
     this.calls.push({ type: "image", image });
   }
 
+  /** Returns a deterministic fake mediaId without uploading to DingTalk. */
+  public async uploadImage(image: ReplyImage): Promise<string> {
+    return `fake-media:${image.name}`;
+  }
+
   /** Stores a fake card start and returns a deterministic card handle. */
   public async startCardStream(input: ReplyCardStreamStart): Promise<ReplyCardStreamHandle> {
     if (this.failCardStart !== undefined) {

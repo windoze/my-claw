@@ -144,6 +144,63 @@ export class FileService {
     }
   }
 
+  /**
+   * Resolves a referenced local image for inline upload, or `null` when it cannot be
+   * inlined. Unlike sendLocalFile this never throws: non-images, out-of-policy paths,
+   * missing files, and oversized images all resolve to `null` so the caller keeps the
+   * original Markdown reference instead of surfacing an error.
+   */
+  public async resolveImageForUpload(
+    inputPath: string,
+    baseDir: string,
+  ): Promise<ReplyFile | null> {
+    let realFile: string;
+
+    try {
+      realFile = await this.pathPolicy.assertAllowedFile(inputPath, { baseDir });
+    } catch (error: unknown) {
+      this.logger.debug("Skipped inline image: path not allowed or missing.", {
+        inputPath,
+        error,
+      });
+      return null;
+    }
+
+    const fileName = path.basename(realFile) || UNKNOWN_FILE_NAME;
+
+    if (!isImageFile(fileName)) {
+      return null;
+    }
+
+    const fileStats = await stat(realFile);
+
+    if (!fileStats.isFile()) {
+      return null;
+    }
+
+    const file: ReplyFile = { path: realFile, name: fileName, sizeBytes: fileStats.size };
+    return this.prepareImageForUpload(file);
+  }
+
+  /**
+   * Ensures an image fits DingTalk's upload size limit before inlining. Oversized
+   * images are skipped for now; transcoding/compression will slot in here later.
+   */
+  private async prepareImageForUpload(image: ReplyFile): Promise<ReplyFile | null> {
+    if (image.sizeBytes <= this.maxFileBytes) {
+      return image;
+    }
+
+    // TODO(transcode): downscale/recompress oversized images instead of skipping.
+    this.logger.warn("Skipped inline image: exceeds upload size limit (transcode pending).", {
+      fileName: image.name,
+      realpath: image.path,
+      sizeBytes: image.sizeBytes,
+      maxFileBytes: this.maxFileBytes,
+    });
+    return null;
+  }
+
   private async resolveAllowedFile(inputPath: string, baseDir: string): Promise<ReplyFile> {
     const realFile = await this.pathPolicy.assertAllowedFile(inputPath, { baseDir });
     const fileStats = await stat(realFile);

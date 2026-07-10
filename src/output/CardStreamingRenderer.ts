@@ -279,11 +279,17 @@ export class CardStreamingRenderer {
     options: { content: string; isFinal: boolean },
   ): Promise<boolean> {
     const status = toCardStatus(accumulator.status, options.isFinal);
+    // Inline local images only on the finalized card: streaming re-sends the full body
+    // on every throttled update, so uploading mid-stream would churn and duplicate work.
+    const content =
+      options.isFinal && context.inlineImages
+        ? await context.inlineImages(options.content)
+        : options.content;
 
     try {
       await streamer.update(handle, {
         title: CARD_TITLE,
-        content: options.content,
+        content,
         status,
         taskId: context.taskId,
         sessionId: accumulator.sessionId,

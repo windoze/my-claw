@@ -48,17 +48,17 @@ export class OutputRenderer {
   public async render(
     events: readonly AgentEvent[],
     replySink: ReplySink,
-    _context: OutputRenderContext = {},
+    context: OutputRenderContext = {},
   ): Promise<void> {
     const messages = this.renderMessages(events);
 
     if (messages.length === 0) {
-      await this.sendMarkdown(EMPTY_OUTPUT_MESSAGE, replySink);
+      await this.sendMarkdown(EMPTY_OUTPUT_MESSAGE, replySink, context);
       return;
     }
 
     for (const message of messages) {
-      await this.sendMarkdown(message, replySink);
+      await this.sendMarkdown(message, replySink, context);
     }
   }
 
@@ -79,7 +79,7 @@ export class OutputRenderer {
     }
 
     if (this.config.progressIntervalMs > 0) {
-      return this.renderStreamWithProgress(events, replySink);
+      return this.renderStreamWithProgress(events, replySink, context);
     }
 
     const collectedEvents = await collectAgentEvents(events);
@@ -96,6 +96,7 @@ export class OutputRenderer {
   private async renderStreamWithProgress(
     events: AsyncIterable<AgentEvent>,
     replySink: ReplySink,
+    context: OutputRenderContext,
   ): Promise<AgentEvent[]> {
     const collectedEvents: AgentEvent[] = [];
     const accumulator = new AgentEventTextAccumulator();
@@ -110,12 +111,12 @@ export class OutputRenderer {
         accumulator.status === "running" &&
         this.now() - lastFlushAt >= this.config.progressIntervalMs
       ) {
-        flushedLength = await this.flushProgress(accumulator, flushedLength, replySink);
+        flushedLength = await this.flushProgress(accumulator, flushedLength, replySink, context);
         lastFlushAt = this.now();
       }
     }
 
-    await this.flushFinal(accumulator, flushedLength, replySink);
+    await this.flushFinal(accumulator, flushedLength, replySink, context);
     return collectedEvents;
   }
 
@@ -124,6 +125,7 @@ export class OutputRenderer {
     accumulator: AgentEventTextAccumulator,
     flushedLength: number,
     replySink: ReplySink,
+    context: OutputRenderContext,
   ): Promise<number> {
     const full = accumulator.toMarkdown();
     const delta = full.slice(flushedLength).trim();
@@ -133,7 +135,7 @@ export class OutputRenderer {
     }
 
     for (const chunk of splitMarkdown(delta, this.config.maxMessageChars)) {
-      await this.sendMarkdown(chunk, replySink);
+      await this.sendMarkdown(chunk, replySink, context);
     }
 
     return full.length;
@@ -144,19 +146,20 @@ export class OutputRenderer {
     accumulator: AgentEventTextAccumulator,
     flushedLength: number,
     replySink: ReplySink,
+    context: OutputRenderContext,
   ): Promise<void> {
     const full = accumulator.toMarkdown();
     const remainder = full.slice(flushedLength).trim();
 
     if (remainder.length === 0) {
       if (flushedLength === 0) {
-        await this.sendMarkdown(EMPTY_OUTPUT_MESSAGE, replySink);
+        await this.sendMarkdown(EMPTY_OUTPUT_MESSAGE, replySink, context);
       }
       return;
     }
 
     for (const chunk of splitMarkdown(remainder, this.config.maxMessageChars)) {
-      await this.sendMarkdown(chunk, replySink);
+      await this.sendMarkdown(chunk, replySink, context);
     }
   }
 
@@ -168,10 +171,16 @@ export class OutputRenderer {
   }
 
   /** Sends a Markdown body according to the configured output mode. */
-  private async sendMarkdown(markdown: string, replySink: ReplySink): Promise<void> {
+  private async sendMarkdown(
+    markdown: string,
+    replySink: ReplySink,
+    context: OutputRenderContext,
+  ): Promise<void> {
+    const inlined = context.inlineImages ? await context.inlineImages(markdown) : markdown;
+
     switch (this.config.mode) {
       case "markdown":
-        await replySink.sendMarkdown(markdown);
+        await replySink.sendMarkdown(inlined);
         return;
     }
   }
