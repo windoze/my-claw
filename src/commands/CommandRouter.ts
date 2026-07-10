@@ -5,6 +5,7 @@ import type { ReplySink } from "../output/types.js";
 import { UserFacingError } from "../utils/errors.js";
 import { createLogger, type Logger } from "../utils/logger.js";
 import type { FileService } from "../files/FileService.js";
+import type { ScreenshotService } from "../files/ScreenshotService.js";
 import {
   createDefaultCommandHandlers,
   createSessionCommandHandlers,
@@ -22,6 +23,7 @@ export interface CommandRouterOptions {
   handlers?: Partial<CommandHandlers>;
   sessionManager?: SessionManager;
   fileService?: FileService;
+  screenshotService?: ScreenshotService;
   stopCurrentTask?: StopCommandCallback;
   logger?: Logger;
   genericErrorMessage?: string;
@@ -111,6 +113,7 @@ function mergeHandlers(
     new: overrides.new ?? defaults.new,
     oc: overrides.oc ?? defaults.oc,
     dl: overrides.dl ?? defaults.dl,
+    screenshot: overrides.screenshot ?? defaults.screenshot,
     invalid: overrides.invalid ?? defaults.invalid,
     unknown: overrides.unknown ?? defaults.unknown,
   };
@@ -121,6 +124,7 @@ function createBaseHandlers(options: CommandRouterOptions): CommandHandlers {
     return createSessionCommandHandlers({
       sessionManager: options.sessionManager,
       fileService: options.fileService,
+      screenshotService: options.screenshotService,
       stopCurrentTask: options.stopCurrentTask,
     });
   }

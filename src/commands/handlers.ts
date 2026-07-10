@@ -5,6 +5,7 @@ import { formatState } from "../output/formatState.js";
 import type { ReplySink } from "../output/types.js";
 import type { RuntimeTaskSummary, SessionManager } from "../session/SessionManager.js";
 import type { FileService } from "../files/FileService.js";
+import type { ScreenshotService } from "../files/ScreenshotService.js";
 import { UserFacingError } from "../utils/errors.js";
 import type {
   InvalidCommandParseResult,
@@ -47,14 +48,16 @@ export type StopCommandCallback = (
 export interface SessionCommandHandlersOptions {
   sessionManager: SessionManager;
   fileService?: FileService;
+  screenshotService?: ScreenshotService;
   stopCurrentTask?: StopCommandCallback;
 }
 
-const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/new、/oc、/dl";
+const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/new、/oc、/dl、/screenshot";
 const CC_USAGE = '用法：/cc <dir>。如果路径包含空格，请使用引号，例如：/cc "/Users/me/My Repo"。';
 const OC_USAGE = '用法：/oc <dir>。如果路径包含空格，请使用引号，例如：/oc "/Users/me/My Repo"。';
 const DL_USAGE = '用法：/dl <path>。相对路径基于当前环境目录；路径包含空格时请使用引号，例如：/dl "docs/report.pdf"。';
 const NEW_USAGE = "用法：/new。结束当前环境的会话，下一条普通消息将开启新会话。";
+const SCREENSHOT_USAGE = "用法：/screenshot。截取主屏幕并发送，无需参数。";
 
 /** Creates the first-stage handler set used by CommandRouter by default. */
 export function createDefaultCommandHandlers(): CommandHandlers {
@@ -66,6 +69,7 @@ export function createDefaultCommandHandlers(): CommandHandlers {
     new: handleSessionCommandPlaceholder,
     oc: handleOpenCodePlaceholder,
     dl: handleFileDownloadPlaceholder,
+    screenshot: handleScreenshotPlaceholder,
     invalid: handleInvalidCommand,
     unknown: handleUnknownCommand,
   };
@@ -76,6 +80,7 @@ export function createSessionCommandHandlers(
   options: SessionCommandHandlersOptions,
 ): CommandHandlers {
   const fileService = options.fileService;
+  const screenshotService = options.screenshotService;
 
   return {
     cc: (context) => handleClaudeProjectCommand(context, options.sessionManager),
@@ -94,6 +99,11 @@ export function createSessionCommandHandlers(
               options.sessionManager,
               fileService,
             ),
+    screenshot:
+      screenshotService === undefined
+        ? handleScreenshotPlaceholder
+        : (context) =>
+            handleScreenshotCommand(context, options.sessionManager, screenshotService),
     invalid: handleInvalidCommand,
     unknown: handleUnknownCommand,
   };
@@ -130,6 +140,15 @@ export async function handleFileDownloadPlaceholder({
 }: CommandHandlerContext<KnownCommandParseResult>): Promise<void> {
   await replySink.sendText(
     "命令 /dl 已识别，但当前 CommandRouter 尚未接入 FileService。",
+  );
+}
+
+/** Handles `/screenshot` until a ScreenshotService is supplied to CommandRouter. */
+export async function handleScreenshotPlaceholder({
+  replySink,
+}: CommandHandlerContext<KnownCommandParseResult>): Promise<void> {
+  await replySink.sendText(
+    "命令 /screenshot 已识别，但当前 CommandRouter 尚未接入 ScreenshotService。",
   );
 }
 
@@ -200,6 +219,28 @@ export async function handleFileDownloadCommand(
   });
   const kind = result.sentAsImage ? "图片" : "文件";
   await replySink.sendText(`已发送${kind}：${result.file.name}`);
+}
+
+/** Handles `/screenshot` by capturing the primary display and sending it as an image. */
+export async function handleScreenshotCommand(
+  { command, replySink }: CommandHandlerContext<KnownCommandParseResult>,
+  sessionManager: SessionManager,
+  screenshotService: ScreenshotService,
+): Promise<void> {
+  await sessionManager.assertCanAcceptCommand("screenshot");
+
+  if (command.args.length > 0) {
+    throw new UserFacingError("COMMAND_USAGE_INVALID", SCREENSHOT_USAGE);
+  }
+
+  const file = await screenshotService.capture();
+
+  try {
+    await replySink.sendImage(file);
+    await replySink.sendText("已发送截屏。");
+  } finally {
+    await screenshotService.cleanup(file.path);
+  }
 }
 
 /** Handles `/close` by returning command routing to the configured default environment. */

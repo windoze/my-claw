@@ -18,7 +18,7 @@ import {
   type DingTalkAttachmentResolver,
   type DingTalkStreamClientFactory,
 } from "./dingtalk/index.js";
-import { FileService, TempFileStore } from "./files/index.js";
+import { FileService, ScreenshotService, TempFileStore } from "./files/index.js";
 import type { IncomingMessage } from "./messages/types.js";
 import {
   extractLocalFileRefs,
@@ -132,9 +132,13 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     logger: createLogger("files:temp"),
   });
   await tempFileStore.start();
+  const screenshotService = new ScreenshotService({
+    logger: createLogger("screenshot"),
+  });
   const commandRouter = new CommandRouter({
     sessionManager,
     fileService,
+    screenshotService,
     logger: createLogger("commands"),
   });
   const attachmentResolver = createDingTalkAttachmentResolver({

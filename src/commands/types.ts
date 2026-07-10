@@ -1,6 +1,15 @@
 /** Shared slash command parser contracts used by command routing and handlers. */
 
-export const KNOWN_SLASH_COMMANDS = ["cc", "close", "state", "stop", "new", "oc", "dl"] as const;
+export const KNOWN_SLASH_COMMANDS = [
+  "cc",
+  "close",
+  "state",
+  "stop",
+  "new",
+  "oc",
+  "dl",
+  "screenshot",
+] as const;
 
 export type SlashCommandName = (typeof KNOWN_SLASH_COMMANDS)[number];
 
