@@ -137,6 +137,14 @@ export const streamingConfigSchema = z
     contentKey: DEFAULT_STREAMING_CONTENT_KEY,
   });
 
+/** Validates optional overrides for the /screenshot capture command. */
+export const screenshotConfigSchema = z
+  .object({
+    command: nonEmptyStringSchema,
+    args: z.array(z.string()).default([]),
+  })
+  .strict();
+
 /** Validates the complete application configuration. */
 export const appConfigSchema = z
   .object({
@@ -147,5 +155,6 @@ export const appConfigSchema = z
     claudeCode: claudeCodeConfigSchema,
     output: outputConfigSchema,
     streaming: streamingConfigSchema,
+    screenshot: screenshotConfigSchema.optional(),
   })
   .strict();

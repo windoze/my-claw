@@ -111,6 +111,17 @@ export interface StreamingConfig {
   contentKey: string;
 }
 
+/**
+ * Overrides the command used by the /screenshot capture service.
+ * When omitted, the service auto-detects a platform-appropriate command.
+ * The literal `{output}` token in `args` is replaced with the target PNG path;
+ * if absent, the path is appended as the final argument.
+ */
+export interface ScreenshotConfig {
+  command: string;
+  args: string[];
+}
+
 /** Fully validated application configuration used by runtime modules. */
 export interface AppConfig {
   dingtalk: DingTalkConfig;
@@ -120,4 +131,5 @@ export interface AppConfig {
   claudeCode: ClaudeCodeConfig;
   output: OutputConfig;
   streaming: StreamingConfig;
+  screenshot?: ScreenshotConfig;
 }

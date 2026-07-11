@@ -134,6 +134,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   await tempFileStore.start();
   const screenshotService = new ScreenshotService({
     logger: createLogger("screenshot"),
+    config: config.screenshot,
   });
   const commandRouter = new CommandRouter({
     sessionManager,

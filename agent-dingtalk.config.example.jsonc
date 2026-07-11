@@ -62,4 +62,14 @@
     "fallbackMode": "markdown",
     "contentKey": "content"
   }
+  // Optional: override the /screenshot capture command.
+  // Omit this block to auto-detect a platform-appropriate command:
+  //   macOS -> screencapture
+  //   Linux -> the first available of gnome-screenshot / spectacle / grim / scrot / maim / import
+  // The literal {output} token in "args" is replaced with the target PNG path;
+  // if "args" omits {output}, the path is appended as the final argument.
+  // "screenshot": {
+  //   "command": "spectacle",
+  //   "args": ["-b", "-n", "-o", "{output}"]
+  // }
 }
