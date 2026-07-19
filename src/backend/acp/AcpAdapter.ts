@@ -7,8 +7,11 @@ import { Readable, Writable } from "node:stream";
 import {
   AGENT_METHODS,
   client,
+  type ClientCapabilities,
   type ClientConnection,
   CLIENT_METHODS,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   ndJsonStream,
   PROTOCOL_VERSION,
   type PromptResponse,
@@ -18,6 +21,7 @@ import {
 } from "@agentclientprotocol/sdk";
 
 import type { AcpConfig } from "../../config/types.js";
+import type { PathPolicy } from "../../security/PathPolicy.js";
 import type { AgentEnvironment } from "../../session/types.js";
 import { UserFacingError } from "../../utils/errors.js";
 import { createLogger, redactLogString, type Logger } from "../../utils/logger.js";
@@ -30,6 +34,8 @@ import type {
   BackendAdapter,
   BackendSession,
 } from "../types.js";
+import { AcpFileSystem } from "./AcpFileSystem.js";
+import { AcpTerminalManager } from "./AcpTerminalManager.js";
 import { AsyncEventQueue } from "./AsyncEventQueue.js";
 import {
   type AcpUpdateMappingState,
@@ -37,12 +43,26 @@ import {
   drainUnfinishedToolCalls,
   mapAcpUpdate,
 } from "./mapAcpUpdate.js";
+import {
+  ASK_USER_QUESTION_TOOL,
+  buildAcceptResponse,
+  mapElicitationToQuestions,
+} from "./mapElicitation.js";
 import { ACP_BACKEND, type AcpBackendSession } from "./types.js";
 
 /** Options accepted when constructing an ACP backend adapter. */
 export interface AcpAdapterOptions {
   config?: AcpConfig;
   logger?: Logger;
+  /**
+   * Allowlist policy used to bound `fs/*` client-method access to the agent's
+   * working-directory tree. When provided, the adapter advertises the `fs` and
+   * `terminal` client capabilities so providers that rely on client-side file IO
+   * and command execution (rather than doing it in their own process) work fully.
+   */
+  pathPolicy?: PathPolicy;
+  /** Per-file byte ceiling for `fs/read_text_file`. */
+  maxFileBytes?: number;
 }
 
 /** User-facing error categories raised by the ACP adapter. */
@@ -87,6 +107,8 @@ interface AcpConnectionContext {
   connection: ClientConnection;
   loadSessionSupported: boolean;
   activePrompts: Map<string, ActiveAcpPrompt>;
+  fileSystem: AcpFileSystem;
+  terminals: AcpTerminalManager;
 }
 
 const STOPPED_MESSAGE = "当前 Agent 任务已中断。";
@@ -97,6 +119,8 @@ const PIVOT_NOTICE = "↪️ 已根据新消息调整方向，以下是更新后
 export class AcpAdapter implements BackendAdapter {
   private readonly config?: AcpConfig;
   private readonly logger: Logger;
+  private readonly pathPolicy?: PathPolicy;
+  private readonly maxFileBytes?: number;
   private readonly contexts = new Map<string, Promise<AcpConnectionContext>>();
   private readonly sessionContexts = new WeakMap<BackendSession, AcpConnectionContext>();
   private readonly activePrompts = new WeakMap<BackendSession, ActiveAcpPrompt>();
@@ -104,6 +128,8 @@ export class AcpAdapter implements BackendAdapter {
   public constructor(options: AcpAdapterOptions = {}) {
     this.config = options.config;
     this.logger = options.logger ?? createLogger("backend:acp");
+    this.pathPolicy = options.pathPolicy;
+    this.maxFileBytes = options.maxFileBytes;
   }
 
   /** Opens or reuses the ACP subprocess/connection/session for the selected environment. */
@@ -353,6 +379,16 @@ export class AcpAdapter implements BackendAdapter {
       connection: undefined as unknown as ClientConnection,
       loadSessionSupported: false,
       activePrompts: new Map<string, ActiveAcpPrompt>(),
+      fileSystem: new AcpFileSystem({
+        // pathPolicy presence gates fs/terminal capability + handler registration
+        // below; when absent the agent is never told these methods exist, so this
+        // instance is constructed but never invoked.
+        pathPolicy: this.pathPolicy as NonNullable<typeof this.pathPolicy>,
+        cwd,
+        ...(this.maxFileBytes !== undefined ? { maxFileBytes: this.maxFileBytes } : {}),
+        logger: this.logger,
+      }),
+      terminals: new AcpTerminalManager({ sessionCwd: cwd, logger: this.logger }),
     };
 
     child.on("error", (error) => {
@@ -364,25 +400,56 @@ export class AcpAdapter implements BackendAdapter {
       for (const activePrompt of context.activePrompts.values()) {
         activePrompt.queue.close();
       }
+      context.terminals.disposeAll();
     });
 
     const stream = ndJsonStream(
       Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
       Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     );
-    context.connection = client({ name: "my-claw" })
+    let builder = client({ name: "my-claw" })
       .onNotification(CLIENT_METHODS.session_update, ({ params }) =>
         this.handleSessionUpdate(context, params),
       )
       .onRequest(CLIENT_METHODS.session_request_permission, ({ params }) =>
         this.handlePermissionRequest(context, params),
       )
-      .connect(stream);
+      .onRequest(CLIENT_METHODS.elicitation_create, ({ params }) =>
+        this.handleElicitationCreate(context, params),
+      )
+      .onNotification(CLIENT_METHODS.elicitation_complete, () => {
+        // URL-mode elicitation completion is not surfaced to DingTalk; ignore.
+      });
+
+    if (this.pathPolicy !== undefined) {
+      builder = builder
+        .onRequest(CLIENT_METHODS.fs_read_text_file, ({ params }) =>
+          context.fileSystem.readTextFile(params),
+        )
+        .onRequest(CLIENT_METHODS.fs_write_text_file, ({ params }) =>
+          context.fileSystem.writeTextFile(params),
+        )
+        .onRequest(CLIENT_METHODS.terminal_create, ({ params }) =>
+          context.terminals.create(params),
+        )
+        .onRequest(CLIENT_METHODS.terminal_output, ({ params }) =>
+          context.terminals.output(params),
+        )
+        .onRequest(CLIENT_METHODS.terminal_wait_for_exit, ({ params }) =>
+          context.terminals.waitForExit(params),
+        )
+        .onRequest(CLIENT_METHODS.terminal_kill, ({ params }) => context.terminals.kill(params))
+        .onRequest(CLIENT_METHODS.terminal_release, ({ params }) =>
+          context.terminals.release(params),
+        );
+    }
+
+    context.connection = builder.connect(stream);
 
     try {
       const initResult = await context.connection.agent.request(AGENT_METHODS.initialize, {
         protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {},
+        clientCapabilities: this.buildClientCapabilities(),
       });
       context.loadSessionSupported = initResult.agentCapabilities?.loadSession === true;
     } catch (error: unknown) {
@@ -551,6 +618,64 @@ export class AcpAdapter implements BackendAdapter {
     }
   }
 
+  /**
+   * Bridges a form-mode `elicitation/create` (e.g. AskUserQuestion) through the
+   * same interactive-question chat flow as the Claude Code SDK backend. The
+   * request's schema becomes a `questions` prompt; the user's answers are folded
+   * back into an accept-action response. Declines map to `decline` (the agent
+   * treats it as "skipped" and continues); cancel/abort map to `cancel`.
+   */
+  private async handleElicitationCreate(
+    context: AcpConnectionContext,
+    params: CreateElicitationRequest,
+  ): Promise<CreateElicitationResponse> {
+    const sessionId = readSessionId(params);
+    const activePrompt =
+      sessionId !== undefined ? context.activePrompts.get(sessionId) : undefined;
+    const handler = activePrompt?.permissionHandler;
+
+    const mapped = mapElicitationToQuestions(params);
+    if (handler === undefined || activePrompt === undefined || mapped === null) {
+      return { action: "decline" };
+    }
+
+    const requestId = `elicit_${sessionId ?? "unknown"}_${activePrompt.mappingState.startedToolCalls.size}`;
+
+    try {
+      const decision = await handler({
+        toolName: ASK_USER_QUESTION_TOOL,
+        input: mapped.input,
+        requestId,
+        toolUseId: requestId,
+        signal: activePrompt.permissionAbort.signal,
+      });
+
+      if (decision.behavior === "deny") {
+        return decision.interrupt === true ? { action: "cancel" } : { action: "decline" };
+      }
+
+      const answers = readAnswers(decision.updatedInput);
+      return buildAcceptResponse(answers, mapped.questions);
+    } catch (error: unknown) {
+      this.logger.error("ACP elicitation handling failed.", { error, sessionId });
+      return { action: "cancel" };
+    }
+  }
+
+  /** Builds the client capabilities advertised at initialize based on injected deps. */
+  private buildClientCapabilities(): ClientCapabilities {
+    const capabilities: ClientCapabilities = {
+      elicitation: { form: {}, url: {} },
+    };
+
+    if (this.pathPolicy !== undefined) {
+      capabilities.fs = { readTextFile: true, writeTextFile: true };
+      capabilities.terminal = true;
+    }
+
+    return capabilities;
+  }
+
   /** Resolves the connection context associated with a session handle. */
   private getSessionContext(session: BackendSession): AcpConnectionContext {
     const context = this.sessionContexts.get(session);
@@ -570,6 +695,7 @@ export class AcpAdapter implements BackendAdapter {
     for (const activePrompt of context.activePrompts.values()) {
       activePrompt.queue.close();
     }
+    context.terminals.disposeAll();
 
     try {
       context.child.kill();
@@ -601,6 +727,29 @@ function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/** Reads the session id from a session-scoped elicitation request, if present. */
+function readSessionId(params: CreateElicitationRequest): string | undefined {
+  const sessionId = (params as { sessionId?: unknown }).sessionId;
+  return typeof sessionId === "string" ? sessionId : undefined;
+}
+
+/** Extracts the `{ [questionText]: answer }` map produced by the question flow. */
+function readAnswers(updatedInput: Record<string, unknown> | undefined): Record<string, string> {
+  const answers = updatedInput?.answers;
+  if (typeof answers !== "object" || answers === null) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
+
+  return result;
 }
 
 /** Maps an allow/deny decision back to an ACP permission outcome. */

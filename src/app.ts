@@ -106,6 +106,9 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   });
   const acpAdapter = new AcpAdapter({
     ...(config.acp !== undefined ? { config: config.acp } : {}),
+    // Bound ACP fs/terminal client methods to the agent working-directory tree.
+    pathPolicy: await PathPolicy.create(config.security.allowedRootDirs),
+    maxFileBytes: config.security.maxDownloadFileBytes,
     logger: createLogger("backend:acp"),
   });
   const backendRegistry = new BackendRegistry([
@@ -455,6 +458,11 @@ async function handleNormalMessage(
   let session: BackendSession | null = null;
   let events: AgentEvent[] = [];
 
+  // Track out-of-band replies (permission prompts, acknowledgements) sent through
+  // this task's sink so the AI Card renderer can break to a fresh card and stay the
+  // last message in the chat.
+  const trackingSink = createCardBreakTrackingSink(replySink);
+
   try {
     await options.sessionManager.startTask({ messageId: message.id });
     taskStarted = true;
@@ -481,19 +489,20 @@ async function handleNormalMessage(
           ? {
               permissionHandler: options.permissionPromptManager.createHandler({
                 message,
-                replySink,
+                replySink: trackingSink.sink,
               }),
             }
           : {}),
       }),
-      replySink,
+      trackingSink.sink,
       {
         taskId: message.id,
-        ...createInlineImagesContext(replySink, environment.cwd, options),
+        consumeCardBreak: () => trackingSink.consumeCardBreak(),
+        ...createInlineImagesContext(trackingSink.sink, environment.cwd, options),
       },
     );
     await saveTerminalSessionId(events, environment, options.sessionManager);
-    await emitReferencedAttachments(events, message, replySink, environment.cwd, options);
+    await emitReferencedAttachments(events, message, trackingSink.sink, environment.cwd, options);
   } catch (error: unknown) {
     await replyNormalMessageError(error, message, replySink, handlerLogger, options);
   } finally {
@@ -596,6 +605,60 @@ function formatUserFacingNormalMessageError(error: UserFacingError): string {
   }
 
   return error.safeMessage ?? error.message;
+}
+
+/** A reply sink wrapper plus a flag reporting out-of-band (non-card) sends. */
+interface CardBreakTrackingSink {
+  sink: ReplySink;
+  /** Returns true (and resets) when a non-card reply was sent since the last call. */
+  consumeCardBreak(): boolean;
+}
+
+/**
+ * Wraps a reply sink so every non-card reply (text/markdown/file/image) raises a
+ * one-shot "card break" flag. AI Card streaming passes through untouched. The card
+ * renderer consumes the flag to finalize the current card and open a fresh one, so
+ * the streaming card stays the last message after any out-of-band prompt or reply.
+ */
+function createCardBreakTrackingSink(replySink: ReplySink): CardBreakTrackingSink {
+  let broken = false;
+  const mark = (): void => {
+    broken = true;
+  };
+
+  const sink: ReplySink = {
+    sendText: async (text) => {
+      mark();
+      await replySink.sendText(text);
+    },
+    sendMarkdown: async (markdown) => {
+      mark();
+      await replySink.sendMarkdown(markdown);
+    },
+    sendFile: async (file) => {
+      mark();
+      await replySink.sendFile(file);
+    },
+    sendImage: async (image) => {
+      mark();
+      await replySink.sendImage(image);
+    },
+    // Card streaming and image uploads are not chat messages, so they must not
+    // trigger a card break; forward them to the underlying sink unchanged.
+    ...(replySink.uploadImage !== undefined
+      ? { uploadImage: (image) => replySink.uploadImage!(image) }
+      : {}),
+    ...(replySink.cardStreamer !== undefined ? { cardStreamer: replySink.cardStreamer } : {}),
+  };
+
+  return {
+    sink,
+    consumeCardBreak: () => {
+      const wasBroken = broken;
+      broken = false;
+      return wasBroken;
+    },
+  };
 }
 
 /**

@@ -3,6 +3,7 @@
 import path from "node:path";
 
 import type { AcpConfig } from "../../config/types.js";
+import { PathPolicy } from "../../security/PathPolicy.js";
 import type { AgentEnvironment } from "../../session/types.js";
 import type { AgentEvent } from "../types.js";
 import { AcpAdapter } from "./AcpAdapter.js";
@@ -39,7 +40,10 @@ async function runCli(args: readonly string[] = process.argv.slice(2)): Promise<
       [options.provider]: { command: options.command, args: options.commandArgs },
     },
   };
-  const adapter = new AcpAdapter({ config });
+  // Advertise fs/terminal by bounding them to the working directory, matching how
+  // the gateway constructs the adapter, so this CLI can exercise those methods.
+  const pathPolicy = await PathPolicy.create([path.resolve(options.cwd)]);
+  const adapter = new AcpAdapter({ config, pathPolicy, maxFileBytes: 20 * 1024 * 1024 });
   const session = await adapter.open(buildEnvironment(options));
   const prompt = buildPrompt(options.promptParts);
 

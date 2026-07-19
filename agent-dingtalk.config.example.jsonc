@@ -55,7 +55,7 @@
   //   "defaultProvider": "cc",
   //   "providers": {
   //     "cc": { "command": "claude-agent-acp", "args": [] },
-  //     "cx": { "command": "codex", "args": ["acp"] },
+  //     "cx": { "command": "codex-acp", "args": [] },
   //     "kimi": { "command": "kimi", "args": ["acp"] },
   //     "oc": { "command": "opencode", "args": ["acp"] }
   //   }

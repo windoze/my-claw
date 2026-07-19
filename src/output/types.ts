@@ -55,6 +55,13 @@ export interface OutputRenderContext {
    * text unchanged when there is nothing to inline or the injector is absent.
    */
   inlineImages?(markdown: string): Promise<string>;
+  /**
+   * Returns true (and clears the flag) when an out-of-band message — a permission
+   * prompt, acknowledgement, or other non-card reply — was sent to the chat since
+   * the last call. The card renderer uses this to finalize the current AI Card and
+   * start a fresh one, so the streaming card stays the last message in the chat.
+   */
+  consumeCardBreak?(): boolean;
 }
 
 /** Destination capable of sending replies back to the current chat. */

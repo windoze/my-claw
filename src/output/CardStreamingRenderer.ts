@@ -34,8 +34,6 @@ const CARD_TITLE = "Agent 回复";
 const EMPTY_CARD_CONTENT = "任务已完成，但没有文本输出。";
 const TOOL_PROGRESS_HEADER = "任务仍在运行，正在处理：";
 const MAX_TOOL_PROGRESS_LINES = 6;
-/** Tools that surface an out-of-band prompt and therefore split the card stream. */
-const INTERACTIVE_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode"]);
 const OUT_TRACK_ID_PREFIX = "agent";
 const MAX_OUT_TRACK_ID_LENGTH = 64;
 const OUT_TRACK_ID_RANDOM_CHARS = 16;
@@ -64,10 +62,11 @@ export class CardStreamingRenderer {
   /**
    * Streams events into AI Cards, falling back to final Markdown if card APIs fail.
    *
-   * Cards are created lazily on first real content (no placeholder card). When an
-   * interactive tool (AskUserQuestion / ExitPlanMode) fires, the current card is
-   * finalized and a fresh card is started for subsequent output, so out-of-band
-   * prompt/answer messages sit between the two cards in chat order.
+   * Cards are created lazily on first real content (no placeholder card). Whenever
+   * an out-of-band message lands in the chat — a permission prompt, an
+   * acknowledgement, or a backend `notice` such as a pivot — the current card is
+   * finalized and a fresh card is started for subsequent output, so the streaming
+   * card stays the last message in the chat instead of being scrolled away.
    */
   public async renderStream(
     eventStream: AsyncIterable<AgentEvent>,
@@ -91,16 +90,13 @@ export class CardStreamingRenderer {
 
     for await (const event of eventStream) {
       events.push(event);
-      accumulator.append(event, this.logger);
-      appendToolProgressLine(toolProgressLines, event);
 
-      if (cardFailed) {
-        continue;
-      }
-
-      // An interactive tool sends an out-of-band prompt; close the current card and
-      // start a fresh segment so post-interaction output lands on a new card below it.
-      if (event.type === "tool_start" && isInteractiveTool(event.name)) {
+      // An out-of-band message (permission prompt / acknowledgement / notice) means
+      // the streaming card is no longer the last message. Finalize the current card
+      // using the content accumulated *before* this event, then let this event flow
+      // onto a fresh card below the out-of-band message. The break is checked before
+      // appending so the current event's own text lands on the new card, not the old.
+      if (!cardFailed && this.shouldBreakCard(event, context)) {
         if (handle !== undefined) {
           const content = segmentContent(accumulator, publishedBaseline, toolProgressLines, {
             isFinal: true,
@@ -116,6 +112,12 @@ export class CardStreamingRenderer {
         handle = undefined;
         toolProgressLines = [];
         lastSentContent = "";
+      }
+
+      accumulator.append(event, this.logger);
+      appendToolProgressLine(toolProgressLines, event);
+
+      if (cardFailed) {
         continue;
       }
 
@@ -261,6 +263,18 @@ export class CardStreamingRenderer {
     return this.now() - lastUpdateAt >= this.config.updateThrottleMs;
   }
 
+  /**
+   * Decides whether an out-of-band message has broken the card's "last message"
+   * position. A `notice` event is emitted into the stream (e.g. a pivot), while
+   * other out-of-band replies (permission prompts, acknowledgements) are reported
+   * by the router through `context.consumeCardBreak`. Both must be checked every
+   * event so the break flag is consumed even when the event itself is a notice.
+   */
+  private shouldBreakCard(event: AgentEvent, context: OutputRenderContext): boolean {
+    const flagged = context.consumeCardBreak?.() ?? false;
+    return flagged || event.type === "notice";
+  }
+
   private async renderFallback(
     eventStream: AsyncIterable<AgentEvent>,
     replySink: ReplySink,
@@ -350,11 +364,6 @@ type FinalizeOutcome =
   | { status: "finalized"; handle: ReplyCardStreamHandle }
   | { status: "empty" }
   | { status: "failed" };
-
-/** Reports whether a tool surfaces an out-of-band prompt that should split the card. */
-function isInteractiveTool(name: string): boolean {
-  return INTERACTIVE_TOOL_NAMES.has(name.trim());
-}
 
 /**
  * Builds the content for the current card segment: the accumulated Markdown beyond
