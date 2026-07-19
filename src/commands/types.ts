@@ -7,6 +7,7 @@ export const KNOWN_SLASH_COMMANDS = [
   "stop",
   "new",
   "oc",
+  "acp",
   "dl",
   "screenshot",
 ] as const;

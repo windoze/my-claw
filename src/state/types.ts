@@ -16,6 +16,8 @@ export interface ActiveProjectState {
   cwd: string;
   agent?: string;
   model?: string;
+  /** ACP provider name; only set when backend is `acp`. */
+  provider?: string;
 }
 
 /** Known project metadata retained after a project is closed. */
@@ -25,6 +27,7 @@ export interface KnownProjectState extends ActiveProjectState, SessionState {}
 export interface RuntimeTaskState {
   backend: AgentBackend;
   cwd: string;
+  provider?: string;
   messageId?: string;
   startedAt?: string;
 }

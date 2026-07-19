@@ -1,7 +1,7 @@
 /** Configuration model for agent-dingtalk.config.jsonc. */
 
 /** Backend names accepted by runtime modules. */
-export type AgentBackend = "claude-code" | "opencode";
+export type AgentBackend = "claude-code" | "opencode" | "acp";
 
 /** Claude Code SDK permission modes accepted by configuration. */
 export const CLAUDE_CODE_PERMISSION_MODES = [
@@ -62,6 +62,8 @@ export interface AgentEnvironmentConfig {
   cwd: string;
   agent?: string;
   model?: string;
+  /** ACP provider name (keys `acp.providers`); only meaningful when backend is `acp`. */
+  provider?: string;
 }
 
 /** Optional named project users can open without retyping all environment settings. */
@@ -93,6 +95,27 @@ export interface ClaudeCodeConfig {
   permissionMode?: ClaudeCodePermissionMode;
   allowedTools?: string[];
   maxTurns: number;
+}
+
+/**
+ * One selectable ACP agent. `command` + `args` launch a compatible ACP agent
+ * as a stdio subprocess; `env` adds extra environment variables merged over the
+ * current process environment.
+ */
+export interface AcpProviderConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+/**
+ * Agent Client Protocol (ACP) backend settings. Holds a named set of providers
+ * (e.g. `claude`, `kimi`, `gemini`) selectable via `/acp <provider>`, plus the
+ * provider used when the command omits one.
+ */
+export interface AcpConfig {
+  defaultProvider: string;
+  providers: Record<string, AcpProviderConfig>;
 }
 
 /** DingTalk reply rendering behavior. */
@@ -129,6 +152,7 @@ export interface AppConfig {
   projects?: ProjectConfig[];
   security: SecurityConfig;
   claudeCode: ClaudeCodeConfig;
+  acp?: AcpConfig;
   output: OutputConfig;
   streaming: StreamingConfig;
   screenshot?: ScreenshotConfig;

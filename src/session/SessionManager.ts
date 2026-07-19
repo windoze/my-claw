@@ -2,7 +2,7 @@
 
 import type { AgentBackend, AppConfig, AgentEnvironmentConfig } from "../config/types.js";
 import { selectClaudeCodeSettings } from "../backend/claude/settings.js";
-import type { BackendSession } from "../backend/types.js";
+import type { AgentInput, BackendSession } from "../backend/types.js";
 import { PathPolicy } from "../security/PathPolicy.js";
 import { StateStore } from "../state/StateStore.js";
 import type {
@@ -24,6 +24,7 @@ const PROJECT_STOPPING_MESSAGE = "当前任务正在中断，暂时不能切换�
 export type StatefulCommandName =
   | "cc"
   | "oc"
+  | "acp"
   | "close"
   | "state"
   | "stop"
@@ -39,7 +40,8 @@ export type SessionManagerErrorCode =
   | "SESSION_TASK_STOPPING"
   | "SESSION_NO_RUNNING_TASK"
   | "SESSION_STOP_UNAVAILABLE"
-  | "SESSION_STOP_FAILED";
+  | "SESSION_STOP_FAILED"
+  | "SESSION_ACP_PROVIDER_UNKNOWN";
 
 /** User-facing error thrown when a state transition is rejected. */
 export class SessionManagerError extends UserFacingError {
@@ -94,6 +96,7 @@ export interface SessionEnvironmentSummary {
   cwd: string;
   agent?: string;
   model?: string;
+  provider?: string;
   sessionId: string | null;
 }
 
@@ -101,6 +104,7 @@ export interface SessionEnvironmentSummary {
 export interface RuntimeTaskSummary {
   backend: RuntimeTaskState["backend"];
   cwd: string;
+  provider?: string;
   messageId?: string;
   startedAt?: string;
 }
@@ -150,6 +154,12 @@ export interface CurrentTaskControl {
   session: BackendSession;
   stop(): Promise<void> | void;
   close?(): Promise<void> | void;
+  /**
+   * Pushes a follow-up prompt into the running task so the agent changes
+   * direction mid-turn. Returns true when the live task accepted the input.
+   * Only provided by backends that support interjection (ACP).
+   */
+  interject?(input: AgentInput): boolean;
 }
 
 /** Builds a SessionManager, creating the path policy from validated config when omitted. */
@@ -203,8 +213,32 @@ export class SessionManager {
     return this.openProject(dir, "opencode");
   }
 
+  /**
+   * Opens an ACP project directory after enforcing idle status and path
+   * allowlisting. `provider` selects which configured ACP provider runs; it is
+   * validated against `acp.providers` before the project switch is persisted.
+   */
+  public async openAcpProject(dir: string, provider: string): Promise<OpenProjectResult> {
+    this.assertAcpProviderConfigured(provider);
+    return this.openProject(dir, "acp", provider);
+  }
+
+  /** Returns the configured ACP provider names, or an empty list when ACP is unconfigured. */
+  public getAcpProviderNames(): string[] {
+    return this.config.acp === undefined ? [] : Object.keys(this.config.acp.providers);
+  }
+
+  /** Returns the default ACP provider, or undefined when ACP is unconfigured. */
+  public getDefaultAcpProvider(): string | undefined {
+    return this.config.acp?.defaultProvider;
+  }
+
   /** Opens a project directory for the requested backend and persists per-backend metadata. */
-  private async openProject(dir: string, backend: AgentBackend): Promise<OpenProjectResult> {
+  private async openProject(
+    dir: string,
+    backend: AgentBackend,
+    provider?: string,
+  ): Promise<OpenProjectResult> {
     const existingState = await this.stateStore.read();
     assertProjectMutationAllowed(existingState.runtime.status);
 
@@ -212,7 +246,7 @@ export class SessionManager {
     const state = await this.stateStore.update((currentState) => {
       assertProjectMutationAllowed(currentState.runtime.status);
 
-      const knownProject = this.buildKnownProject(realDir, backend, currentState);
+      const knownProject = this.buildKnownProject(realDir, backend, currentState, provider);
       return {
         ...currentState,
         activeProject: toActiveProjectState(knownProject),
@@ -422,6 +456,28 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Routes a follow-up message into the running task so a supporting backend can
+   * change direction mid-turn ("pivot"). Returns false when no task is running or
+   * the active backend does not support interjection, leaving the caller to fall
+   * back to the normal busy rejection. Runtime status stays `running`; the
+   * interjection acts on the in-memory control handle only, avoiding a StateStore
+   * write race with the task's own terminal `markIdle`.
+   */
+  public async tryInterjectCurrentTask(input: AgentInput): Promise<boolean> {
+    const state = await this.stateStore.read();
+    if (state.runtime.status !== "running") {
+      return false;
+    }
+
+    const control = this.currentTaskControl;
+    if (control?.interject === undefined) {
+      return false;
+    }
+
+    return control.interject(input);
+  }
+
   /** Marks the current environment as running a backend task and persists the transition. */
   public async startTask(options: StartTaskOptions = {}): Promise<AppState> {
     return this.stateStore.update((currentState) => {
@@ -449,6 +505,7 @@ export class SessionManager {
           currentTask: {
             backend: environment.backend,
             cwd: environment.cwd,
+            ...(environment.provider ? { provider: environment.provider } : {}),
             ...(options.messageId ? { messageId: options.messageId } : {}),
             startedAt,
           },
@@ -508,6 +565,7 @@ export class SessionManager {
         cwd: environment.cwd,
         ...(environment.agent ? { agent: environment.agent } : {}),
         ...(environment.model ? { model: environment.model } : {}),
+        ...(environment.provider ? { provider: environment.provider } : {}),
         sessionId,
       };
 
@@ -544,19 +602,21 @@ export class SessionManager {
     realDir: string,
     backend: AgentBackend,
     state: AppState,
+    provider?: string,
   ): KnownProjectState {
-    const existingProject = getKnownProject(state, { backend, cwd: realDir });
+    const existingProject = getKnownProject(state, { backend, cwd: realDir, provider });
 
     if (existingProject !== undefined) {
       return existingProject;
     }
 
-    const inheritedEnvironment = this.findConfiguredEnvironment(realDir, backend);
+    const inheritedEnvironment = this.findConfiguredEnvironment(realDir, backend, provider);
     return {
       backend,
       cwd: realDir,
       ...(inheritedEnvironment?.agent ? { agent: inheritedEnvironment.agent } : {}),
       ...(inheritedEnvironment?.model ? { model: inheritedEnvironment.model } : {}),
+      ...(provider !== undefined ? { provider } : {}),
       sessionId: null,
     };
   }
@@ -565,20 +625,40 @@ export class SessionManager {
   private findConfiguredEnvironment(
     realDir: string,
     backend: AgentBackend,
+    provider?: string,
   ): AgentEnvironmentConfig | undefined {
+    const matchesProvider = (candidate: AgentEnvironmentConfig): boolean =>
+      backend !== "acp" || candidate.provider === provider;
+
     const configuredProject = this.config.projects?.find(
-      (project) => project.backend === backend && project.cwd === realDir,
+      (project) =>
+        project.backend === backend && project.cwd === realDir && matchesProvider(project),
     );
 
     if (configuredProject !== undefined) {
       return configuredProject;
     }
 
-    if (this.config.defaultEnvironment.backend === backend) {
+    if (
+      this.config.defaultEnvironment.backend === backend &&
+      matchesProvider(this.config.defaultEnvironment)
+    ) {
       return this.config.defaultEnvironment;
     }
 
     return undefined;
+  }
+
+  /** Throws a user-safe error when an ACP provider is not configured. */
+  private assertAcpProviderConfigured(provider: string): void {
+    if (this.config.acp?.providers[provider] === undefined) {
+      const available = this.getAcpProviderNames();
+      const suffix = available.length > 0 ? `：${available.join("、")}` : "，请先在配置中添加 acp.providers。";
+      throw new SessionManagerError(
+        "SESSION_ACP_PROVIDER_UNKNOWN",
+        `未知的 ACP provider：${provider}。可用 provider${suffix}`,
+      );
+    }
   }
 
   /** Builds a sanitized state snapshot from config and persisted state. */
@@ -656,15 +736,23 @@ function assertProjectMutationAllowed(status: RuntimeStatus): void {
   }
 }
 
-/** Opaque record key that keeps sessions distinct for the same directory across backends. */
-function getKnownProjectKey(project: Pick<AgentEnvironmentConfig, "backend" | "cwd">): string {
-  return `${project.backend}:${project.cwd}`;
+/**
+ * Opaque record key that keeps sessions distinct for the same directory across
+ * backends, and — for ACP — across providers. Non-ACP or provider-less records
+ * keep the pre-provider `${backend}:${cwd}` key so existing state stays valid.
+ */
+function getKnownProjectKey(
+  project: Pick<AgentEnvironmentConfig, "backend" | "cwd" | "provider">,
+): string {
+  return project.provider === undefined
+    ? `${project.backend}:${project.cwd}`
+    : `${project.backend}:${project.provider}:${project.cwd}`;
 }
 
 /** Returns a known project using the per-backend key, with legacy cwd-key fallback for old state. */
 function getKnownProject(
   state: AppState,
-  project: Pick<AgentEnvironmentConfig, "backend" | "cwd">,
+  project: Pick<AgentEnvironmentConfig, "backend" | "cwd" | "provider">,
 ): KnownProjectState | undefined {
   return getKnownProjectFromRecord(state.knownProjects, project);
 }
@@ -672,7 +760,7 @@ function getKnownProject(
 /** Looks up retained project metadata in a known-project record. */
 function getKnownProjectFromRecord(
   knownProjects: AppState["knownProjects"],
-  project: Pick<AgentEnvironmentConfig, "backend" | "cwd">,
+  project: Pick<AgentEnvironmentConfig, "backend" | "cwd" | "provider">,
 ): KnownProjectState | undefined {
   const keyedProject = knownProjects[getKnownProjectKey(project)];
 
@@ -732,6 +820,7 @@ function toActiveProjectState(project: KnownProjectState): ActiveProjectState {
     cwd: project.cwd,
     ...(project.agent ? { agent: project.agent } : {}),
     ...(project.model ? { model: project.model } : {}),
+    ...(project.provider ? { provider: project.provider } : {}),
   };
 }
 
@@ -747,6 +836,7 @@ function toAgentEnvironment(
     cwd: environment.cwd,
     ...(environment.agent ? { agent: environment.agent } : {}),
     ...(environment.model ? { model: environment.model } : {}),
+    ...(environment.provider ? { provider: environment.provider } : {}),
     ...(sessionId ? { sessionId } : {}),
   };
 }
@@ -759,6 +849,7 @@ function summarizeAgentEnvironment(environment: AgentEnvironment): SessionEnviro
     cwd: environment.cwd,
     ...(environment.agent ? { agent: environment.agent } : {}),
     ...(environment.model ? { model: environment.model } : {}),
+    ...(environment.provider ? { provider: environment.provider } : {}),
     sessionId: maskSessionId(environment.sessionId),
   };
 }
@@ -793,6 +884,7 @@ function summarizeRuntimeTask(task: RuntimeTaskState | null): RuntimeTaskSummary
   return {
     backend: task.backend,
     cwd: task.cwd,
+    ...(task.provider ? { provider: task.provider } : {}),
     ...(task.messageId ? { messageId: task.messageId } : {}),
     ...(task.startedAt ? { startedAt: task.startedAt } : {}),
   };

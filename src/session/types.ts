@@ -11,6 +11,8 @@ export interface AgentEnvironment {
   cwd: string;
   agent?: string;
   model?: string;
+  /** ACP provider name (keys `acp.providers`); only set when backend is `acp`. */
+  provider?: string;
   sessionId?: string;
   kind: AgentEnvironmentKind;
 }

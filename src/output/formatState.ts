@@ -18,7 +18,7 @@ export function formatState(summary: SessionStateSummary): string {
     row("运行状态", formatRuntimeStatus(summary.runtime.status)),
     row("当前环境", formatEnvironmentKind(summary.currentEnvironment.kind)),
     row("当前目录", summary.currentEnvironment.cwd),
-    row("后端", formatBackend(summary.currentEnvironment.backend)),
+    row("后端", formatBackendCell(summary.currentEnvironment)),
     row("Agent", summary.currentEnvironment.agent ?? EMPTY_VALUE),
     row("Model", summary.currentEnvironment.model ?? EMPTY_VALUE),
     row("Session", formatSessionId(summary.currentEnvironment.sessionId)),
@@ -51,7 +51,7 @@ function formatEnvironment(environment: SessionEnvironmentSummary): string[] {
     "| --- | --- |",
     row("类型", formatEnvironmentKind(environment.kind)),
     row("目录", environment.cwd),
-    row("后端", formatBackend(environment.backend)),
+    row("后端", formatBackendCell(environment)),
     row("Agent", environment.agent ?? EMPTY_VALUE),
     row("Model", environment.model ?? EMPTY_VALUE),
     row("Session", formatSessionId(environment.sessionId)),
@@ -67,7 +67,7 @@ function formatRuntimeTask(task: RuntimeTaskSummary | null): string[] {
   return [
     "| 项目 | 值 |",
     "| --- | --- |",
-    row("后端", formatBackend(task.backend)),
+    row("后端", formatBackendCell(task)),
     row("目录", task.cwd),
     row("消息 ID", task.messageId ?? EMPTY_VALUE),
     row("开始时间", task.startedAt ?? EMPTY_VALUE),
@@ -86,7 +86,7 @@ function formatKnownProjects(projects: readonly SessionEnvironmentSummary[]): st
     ...projects.map((project) =>
       [
         escapeMarkdownTableCell(project.cwd),
-        escapeMarkdownTableCell(formatBackend(project.backend)),
+        escapeMarkdownTableCell(formatBackendCell(project)),
         escapeMarkdownTableCell(formatSessionId(project.sessionId)),
       ].join(" | "),
     ).map((line) => `| ${line} |`),
@@ -120,6 +120,14 @@ function formatEnvironmentKind(kind: SessionEnvironmentSummary["kind"]): string 
   }
 }
 
+/** Renders the backend label, appending the ACP provider name when present. */
+function formatBackendCell(
+  environment: { backend: SessionEnvironmentSummary["backend"]; provider?: string },
+): string {
+  const label = formatBackend(environment.backend);
+  return environment.provider === undefined ? label : `${label}（${environment.provider}）`;
+}
+
 /** Renders user-facing backend labels while keeping backend names stable in state. */
 function formatBackend(backend: SessionEnvironmentSummary["backend"]): string {
   switch (backend) {
@@ -127,6 +135,8 @@ function formatBackend(backend: SessionEnvironmentSummary["backend"]): string {
       return "Claude Code";
     case "opencode":
       return "OpenCode";
+    case "acp":
+      return "ACP";
   }
 }
 

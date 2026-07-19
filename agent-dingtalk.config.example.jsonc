@@ -45,6 +45,21 @@
     "allowedTools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
     "maxTurns": 20
   },
+  // Optional: Agent Client Protocol (ACP) backend. Required only when an
+  // environment uses "backend": "acp". Define one or more named providers; each
+  // "command" + "args" launches a compatible ACP agent as a stdio subprocess in
+  // the selected working directory, and "env" adds environment variables merged
+  // over the current process environment. Select a provider with
+  // /acp <provider> [dir]; "defaultProvider" is used when the command omits one.
+  // "acp": {
+  //   "defaultProvider": "cc",
+  //   "providers": {
+  //     "cc": { "command": "claude-agent-acp", "args": [] },
+  //     "cx": { "command": "codex", "args": ["acp"] },
+  //     "kimi": { "command": "kimi", "args": ["acp"] },
+  //     "oc": { "command": "opencode", "args": ["acp"] }
+  //   }
+  // },
   "output": {
     "mode": "markdown",
     "maxMessageChars": 18000,

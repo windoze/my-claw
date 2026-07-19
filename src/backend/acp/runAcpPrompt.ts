@@ -1,25 +1,30 @@
-/** Local CLI for exercising OpenCodeAdapter without DingTalk. */
+/** Local CLI for exercising AcpAdapter without DingTalk. */
 
 import path from "node:path";
 
-import type { AgentEvent } from "../types.js";
+import type { AcpConfig } from "../../config/types.js";
 import type { AgentEnvironment } from "../../session/types.js";
-import { OpenCodeAdapter } from "./OpenCodeAdapter.js";
+import type { AgentEvent } from "../types.js";
+import { AcpAdapter } from "./AcpAdapter.js";
 
-const DEFAULT_PROMPT = "请用一句话回复：OpenCode Adapter 正常工作。";
-const LOCAL_MESSAGE_ID = "local-opencode-prompt";
+const DEFAULT_PROMPT = "请用一句话回复：ACP Adapter 正常工作。";
+const DEFAULT_COMMAND = "claude-agent-acp";
+const DEFAULT_PROVIDER = "claude";
+const LOCAL_MESSAGE_ID = "local-acp-prompt";
 
 interface ParsedCliOptions {
   cwd: string;
+  provider: string;
+  command: string;
+  commandArgs: string[];
   agent?: string;
   model?: string;
   resumeSessionId?: string;
-  serverTimeoutMs?: number;
   promptParts: string[];
   showHelp: boolean;
 }
 
-/** CLI entrypoint that opens an OpenCode backend session and prints emitted events. */
+/** CLI entrypoint that opens an ACP backend session and prints emitted events. */
 async function runCli(args: readonly string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(args);
 
@@ -28,10 +33,13 @@ async function runCli(args: readonly string[] = process.argv.slice(2)): Promise<
     return;
   }
 
-  const adapter = new OpenCodeAdapter({
-    serverOptions:
-      options.serverTimeoutMs === undefined ? undefined : { timeout: options.serverTimeoutMs },
-  });
+  const config: AcpConfig = {
+    defaultProvider: options.provider,
+    providers: {
+      [options.provider]: { command: options.command, args: options.commandArgs },
+    },
+  };
+  const adapter = new AcpAdapter({ config });
   const session = await adapter.open(buildEnvironment(options));
   const prompt = buildPrompt(options.promptParts);
 
@@ -46,17 +54,18 @@ async function runCli(args: readonly string[] = process.argv.slice(2)): Promise<
       process.exitCode = 1;
     }
   } finally {
-    await adapter.close(session);
+    adapter.close(session);
     await adapter.dispose();
   }
 }
 
-/** Builds the OpenCode execution environment used for the local prompt. */
+/** Builds the ACP execution environment used for the local prompt. */
 function buildEnvironment(options: ParsedCliOptions): AgentEnvironment {
   return {
-    backend: "opencode",
+    backend: "acp",
     kind: "default",
     cwd: path.resolve(options.cwd),
+    provider: options.provider,
     ...(options.agent !== undefined ? { agent: options.agent } : {}),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.resumeSessionId !== undefined ? { sessionId: options.resumeSessionId } : {}),
@@ -91,9 +100,16 @@ function writeEvent(event: AgentEvent): boolean {
       process.stderr.write(`[tool_start] ${event.name}\n`);
       return false;
     case "tool_finish":
-      process.stderr.write(`[tool_finish] ${event.name}\n`);
+      process.stderr.write(`[tool_finish] ${event.name} status=${event.status ?? "<none>"}\n`);
       return false;
-    default:
+    case "thought":
+      process.stderr.write(`[thought] ${event.text}\n`);
+      return false;
+    case "plan":
+      process.stderr.write(`[plan] ${event.entries.length} entries\n`);
+      return false;
+    case "notice":
+      process.stderr.write(`[notice] ${event.text}\n`);
       return false;
   }
 }
@@ -102,6 +118,9 @@ function writeEvent(event: AgentEvent): boolean {
 function parseCliArgs(args: readonly string[]): ParsedCliOptions {
   const options: ParsedCliOptions = {
     cwd: process.cwd(),
+    provider: DEFAULT_PROVIDER,
+    command: DEFAULT_COMMAND,
+    commandArgs: [],
     promptParts: [],
     showHelp: false,
   };
@@ -123,6 +142,18 @@ function parseCliArgs(args: readonly string[]): ParsedCliOptions {
         options.cwd = readCliValue(args, index, arg);
         index += 2;
         break;
+      case "--provider":
+        options.provider = readCliValue(args, index, arg);
+        index += 2;
+        break;
+      case "--command":
+        options.command = readCliValue(args, index, arg);
+        index += 2;
+        break;
+      case "--command-arg":
+        options.commandArgs.push(readCliValue(args, index, arg));
+        index += 2;
+        break;
       case "--agent":
         options.agent = readCliValue(args, index, arg);
         index += 2;
@@ -133,10 +164,6 @@ function parseCliArgs(args: readonly string[]): ParsedCliOptions {
         break;
       case "--resume":
         options.resumeSessionId = readCliValue(args, index, arg);
-        index += 2;
-        break;
-      case "--server-timeout-ms":
-        options.serverTimeoutMs = parsePositiveInteger(readCliValue(args, index, arg), arg);
         index += 2;
         break;
       case "--":
@@ -168,30 +195,21 @@ function readCliValue(args: readonly string[], index: number, optionName: string
   return value;
 }
 
-/** Parses and validates a positive integer CLI value. */
-function parsePositiveInteger(value: string, optionName: string): number {
-  const parsedValue = Number(value);
-
-  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
-    throw new Error(`${optionName} must be a positive integer.`);
-  }
-
-  return parsedValue;
-}
-
-/** Writes a concise usage guide for local OpenCode adapter checks. */
+/** Writes a concise usage guide for local ACP adapter checks. */
 function writeUsage(): void {
   process.stdout.write(
     [
-      "Usage: npm run opencode:prompt -- [options] [prompt ...]",
+      "Usage: npm run acp:prompt -- [options] [prompt ...]",
       "",
       "Options:",
-      "  --cwd <dir>                 Working directory for OpenCode. Defaults to current directory.",
-      "  --agent <name>              Optional OpenCode agent name.",
-      "  --model <provider/model>    Optional OpenCode model selection.",
-      "  --resume <session-id>       Optional existing OpenCode session ID to reuse.",
-      "  --server-timeout-ms <ms>    Timeout while waiting for `opencode serve`.",
-      "  -h, --help                  Show this help text.",
+      "  --cwd <dir>            Working directory for the ACP agent. Defaults to current directory.",
+      "  --provider <name>      Provider name recorded on the environment. Defaults to claude.",
+      "  --command <bin>        ACP agent command. Defaults to claude-agent-acp.",
+      "  --command-arg <arg>    Add one argument passed to the ACP agent command. Repeatable.",
+      "  --agent <name>         Optional agent name (currently informational).",
+      "  --model <name>         Optional model selection (currently informational).",
+      "  --resume <session-id>  Optional existing ACP session ID to load.",
+      "  -h, --help             Show this help text.",
       "",
     ].join("\n"),
   );

@@ -50,6 +50,7 @@ export interface CreateFakeMessageRuntimeOptions {
   backend?: FakeBackendAdapter;
   allowedUserIds?: readonly string[];
   rejectGroupMessages?: boolean;
+  acp?: AppConfig["acp"];
   now?: () => Date;
 }
 
@@ -118,6 +119,7 @@ export async function createFakeMessageRuntime(
   const config = createFakeConfig(realCwd, pathPolicy.allowedRootDirs, {
     allowedUserIds: options.allowedUserIds,
     rejectGroupMessages: options.rejectGroupMessages,
+    acp: options.acp,
   });
   const tempState = options.statePath === undefined ? await createTempStateLocation() : null;
   const stateStore = new StateStore({
@@ -138,6 +140,7 @@ export async function createFakeMessageRuntime(
   const backendRegistry = new BackendRegistry([
     ["claude-code", backend],
     ["opencode", backend],
+    ["acp", backend],
   ]);
   const outputRenderer = new OutputRenderer({ config: config.output });
   const fileService = new FileService({
@@ -224,6 +227,7 @@ function createFakeConfig(
   options: {
     allowedUserIds?: readonly string[];
     rejectGroupMessages?: boolean;
+    acp?: AppConfig["acp"];
   },
 ): AppConfig {
   return {
@@ -238,6 +242,7 @@ function createFakeConfig(
       backend: "claude-code",
       cwd,
     },
+    ...(options.acp !== undefined ? { acp: options.acp } : {}),
     security: {
       allowedRootDirs: [...allowedRootDirs],
       downloadAllowedDirs: [...allowedRootDirs],

@@ -1,6 +1,7 @@
 /** Application composition and shared incoming-message routing. */
 
 import {
+  AcpAdapter,
   BackendRegistry,
   ClaudeCodeAdapter,
   OpenCodeAdapter,
@@ -36,6 +37,7 @@ import { AppError, createLogger, UserFacingError, type Logger } from "./utils/in
 const logger = createLogger("app");
 const NORMAL_MESSAGE_BUSY_MESSAGE = "Agent 正在运行，发送 /stop 可中断当前任务。";
 const NORMAL_MESSAGE_STOPPING_MESSAGE = "当前任务正在中断，请稍候。";
+const NORMAL_MESSAGE_INTERJECTED_MESSAGE = "↪️ 已把新消息加入当前任务，Agent 会据此调整方向。";
 const GENERIC_AGENT_ERROR_MESSAGE = "Agent 执行失败，请稍后重试或查看服务日志。";
 const GENERIC_MESSAGE_ERROR_MESSAGE = "消息处理失败，请稍后重试或查看服务日志。";
 
@@ -102,6 +104,10 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
   const openCodeAdapter = new OpenCodeAdapter({
     logger: createLogger("backend:opencode"),
   });
+  const acpAdapter = new AcpAdapter({
+    ...(config.acp !== undefined ? { config: config.acp } : {}),
+    logger: createLogger("backend:acp"),
+  });
   const backendRegistry = new BackendRegistry([
     [
       "claude-code",
@@ -111,6 +117,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
       }),
     ],
     ["opencode", openCodeAdapter],
+    ["acp", acpAdapter],
   ]);
   const outputRenderer = new OutputRenderer({
     config: config.output,
@@ -176,6 +183,7 @@ export async function startApp(options: StartAppOptions = {}): Promise<AppRuntim
     dingtalkAdapter,
     sessionManager,
     openCodeAdapter,
+    acpAdapter,
     tempFileStore,
     logger: createLogger("shutdown"),
   });
@@ -216,6 +224,7 @@ interface AppRuntimeCloseOptions {
   dingtalkAdapter: DingTalkAdapter;
   sessionManager: SessionManager;
   openCodeAdapter: OpenCodeAdapter;
+  acpAdapter: AcpAdapter;
   tempFileStore: TempFileStore;
   logger: Logger;
 }
@@ -246,6 +255,12 @@ function createAppRuntimeClose(options: AppRuntimeCloseOptions): () => Promise<v
       await options.openCodeAdapter.dispose();
     } catch (error: unknown) {
       options.logger.error("OpenCode backend cleanup failed during shutdown.", { error });
+    }
+
+    try {
+      await options.acpAdapter.dispose();
+    } catch (error: unknown) {
+      options.logger.error("ACP backend cleanup failed during shutdown.", { error });
     }
 
     try {
@@ -427,6 +442,10 @@ async function handleNormalMessage(
   const handlerLogger = options.logger ?? createLogger("messages");
 
   if (!(await options.sessionManager.canAcceptNormalMessage())) {
+    if (await tryInterjectRunningTask(message, replySink, options)) {
+      return { authorized: true, handledByCommand: false, backendEvents: [] };
+    }
+
     await replyNormalMessageRejected(options.sessionManager, replySink);
     return { authorized: true, handledByCommand: false, backendEvents: [] };
   }
@@ -449,6 +468,9 @@ async function handleNormalMessage(
       session: activeSession,
       stop: () => activeBackend.stop(activeSession),
       close: () => activeBackend.close(activeSession),
+      ...(activeBackend.interject !== undefined
+        ? { interject: (input) => activeBackend.interject!(activeSession, input) }
+        : {}),
     });
     events = await options.outputRenderer.renderStream(
       backend.send(session, {
@@ -489,6 +511,42 @@ async function handleNormalMessage(
   }
 
   return { authorized: true, handledByCommand: false, backendEvents: events };
+}
+
+/**
+ * Attempts to steer a running task with a follow-up message ("pivot") before
+ * falling back to the busy rejection. Only backends that support interjection
+ * (ACP) accept it; the follow-up carries its own permission handler so tool
+ * authorizations in the redirected turn still route to this chat. Returns true
+ * when the message was consumed as an interjection.
+ */
+async function tryInterjectRunningTask(
+  message: IncomingMessage,
+  replySink: ReplySink,
+  options: HandleIncomingMessageOptions,
+): Promise<boolean> {
+  const resolvedMessage = await resolveIncomingAttachments(message, options);
+  const accepted = await options.sessionManager.tryInterjectCurrentTask({
+    text: resolvedMessage.text,
+    messageId: resolvedMessage.id,
+    ...(resolvedMessage.attachments !== undefined
+      ? { attachments: resolvedMessage.attachments }
+      : {}),
+    ...(options.permissionPromptManager !== undefined
+      ? {
+          permissionHandler: options.permissionPromptManager.createHandler({
+            message: resolvedMessage,
+            replySink,
+          }),
+        }
+      : {}),
+  });
+
+  if (accepted) {
+    await replySink.sendText(NORMAL_MESSAGE_INTERJECTED_MESSAGE);
+  }
+
+  return accepted;
 }
 
 /** Sends the state-specific rejection used when another normal message is already active. */

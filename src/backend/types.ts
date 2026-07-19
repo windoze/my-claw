@@ -57,6 +57,12 @@ export interface BackendAdapter {
   send(session: BackendSession, input: AgentInput): AsyncIterable<AgentEvent>;
   stop(session: BackendSession): void | Promise<void>;
   close(session: BackendSession): void | Promise<void>;
+  /**
+   * Pushes a follow-up prompt into a running task so the agent can change
+   * direction mid-turn ("pivot"). Returns true when the live task accepted the
+   * input. Backends that cannot interject leave this undefined.
+   */
+  interject?(session: BackendSession, input: AgentInput): boolean;
 }
 
 /** Incremental text produced by a backend before final completion. */
@@ -85,18 +91,53 @@ export interface AgentStoppedEvent {
   sessionId?: string;
 }
 
-/** Tool invocation start event reserved for logging and future progress output. */
+/** Tool invocation start event reserved for logging and progress output. */
 export interface AgentToolStartEvent {
   type: "tool_start";
   name: string;
   input?: unknown;
+  title?: string;
+  kind?: string;
+  status?: AgentToolStatus;
 }
 
-/** Tool invocation completion event reserved for logging and future progress output. */
+/** Tool invocation completion event reserved for logging and progress output. */
 export interface AgentToolFinishEvent {
   type: "tool_finish";
   name: string;
   output?: string;
+  status?: AgentToolStatus;
+}
+
+/** Execution status reported by a backend for a tool call. */
+export type AgentToolStatus = "pending" | "in_progress" | "completed" | "failed";
+
+/** Incremental reasoning ("thinking") text produced by a backend. */
+export interface AgentThoughtEvent {
+  type: "thought";
+  text: string;
+}
+
+/** Status of a single plan entry, mirroring the ACP plan entry statuses. */
+export type AgentPlanEntryStatus = "pending" | "in_progress" | "completed";
+
+/** One task in a backend-reported execution plan. */
+export interface AgentPlanEntry {
+  content: string;
+  status: AgentPlanEntryStatus;
+  priority?: string;
+}
+
+/** A full execution-plan snapshot; each event replaces the previous plan. */
+export interface AgentPlanEvent {
+  type: "plan";
+  entries: AgentPlanEntry[];
+}
+
+/** Gateway-injected informational note shown inline between agent output. */
+export interface AgentNoticeEvent {
+  type: "notice";
+  text: string;
 }
 
 /** Events emitted by Agent backends and consumed by output renderers. */
@@ -106,4 +147,7 @@ export type AgentEvent =
   | AgentErrorEvent
   | AgentStoppedEvent
   | AgentToolStartEvent
-  | AgentToolFinishEvent;
+  | AgentToolFinishEvent
+  | AgentThoughtEvent
+  | AgentPlanEvent
+  | AgentNoticeEvent;

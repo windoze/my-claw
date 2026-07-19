@@ -52,9 +52,11 @@ export interface SessionCommandHandlersOptions {
   stopCurrentTask?: StopCommandCallback;
 }
 
-const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/new、/oc、/dl、/screenshot";
+const SUPPORTED_COMMANDS = "/cc、/close、/state、/stop、/new、/oc、/acp、/dl、/screenshot";
 const CC_USAGE = '用法：/cc <dir>。如果路径包含空格，请使用引号，例如：/cc "/Users/me/My Repo"。';
 const OC_USAGE = '用法：/oc <dir>。如果路径包含空格，请使用引号，例如：/oc "/Users/me/My Repo"。';
+const ACP_USAGE_BASE =
+  '用法：/acp [provider] [dir]。省略 provider 时使用默认 provider；路径包含空格时请使用引号，例如：/acp claude "/Users/me/My Repo"。';
 const DL_USAGE = '用法：/dl <path>。相对路径基于当前环境目录；路径包含空格时请使用引号，例如：/dl "docs/report.pdf"。';
 const NEW_USAGE = "用法：/new。结束当前环境的会话，下一条普通消息将开启新会话。";
 const SCREENSHOT_USAGE = "用法：/screenshot。截取主屏幕并发送，无需参数。";
@@ -68,6 +70,7 @@ export function createDefaultCommandHandlers(): CommandHandlers {
     stop: handleSessionCommandPlaceholder,
     new: handleSessionCommandPlaceholder,
     oc: handleOpenCodePlaceholder,
+    acp: handleSessionCommandPlaceholder,
     dl: handleFileDownloadPlaceholder,
     screenshot: handleScreenshotPlaceholder,
     invalid: handleInvalidCommand,
@@ -90,6 +93,7 @@ export function createSessionCommandHandlers(
       handleStopCommand(context, options.sessionManager, options.stopCurrentTask),
     new: (context) => handleNewSessionCommand(context, options.sessionManager),
     oc: (context) => handleOpenCodeProjectCommand(context, options.sessionManager),
+    acp: (context) => handleAcpProjectCommand(context, options.sessionManager),
     dl:
       fileService === undefined
         ? handleFileDownloadPlaceholder
@@ -194,6 +198,75 @@ export async function handleOpenCodeProjectCommand(
 
   const result = await sessionManager.openOpenCodeProject(dir);
   await replySink.sendText(`已切换到 OpenCode 项目：${result.environment.cwd}`);
+}
+
+/**
+ * Handles `/acp [provider] [dir]` by opening an allowlisted ACP project.
+ *
+ * Argument forms:
+ * - `/acp` — default provider, default working directory.
+ * - `/acp <provider>` — a configured provider name; default working directory.
+ * - `/acp <dir>` — a single argument that is NOT a known provider is treated as
+ *   the directory, with the default provider.
+ * - `/acp <provider> <dir>` — both explicit.
+ */
+export async function handleAcpProjectCommand(
+  { command, replySink }: CommandHandlerContext<KnownCommandParseResult>,
+  sessionManager: SessionManager,
+): Promise<void> {
+  await sessionManager.assertCanAcceptCommand("acp");
+
+  const selection = resolveAcpSelection(command, sessionManager);
+
+  if (selection === null) {
+    await replySink.sendText(acpUsage(sessionManager));
+    return;
+  }
+
+  const result = await sessionManager.openAcpProject(selection.dir, selection.provider);
+  const providerNote = result.environment.provider ?? selection.provider;
+  await replySink.sendText(`已切换到 ACP 项目（${providerNote}）：${result.environment.cwd}`);
+}
+
+/** Resolves the provider + directory for `/acp` arguments, or null when usage is invalid. */
+function resolveAcpSelection(
+  command: KnownCommandParseResult,
+  sessionManager: SessionManager,
+): { provider: string; dir: string } | null {
+  const defaultProvider = sessionManager.getDefaultAcpProvider();
+
+  if (defaultProvider === undefined) {
+    // ACP is unconfigured; defer the clear error to openAcpProject via a
+    // placeholder provider so the handler reports available providers.
+    return { provider: "", dir: "." };
+  }
+
+  const providerNames = new Set(sessionManager.getAcpProviderNames());
+
+  if (command.args.length === 0) {
+    return { provider: defaultProvider, dir: "." };
+  }
+
+  if (command.args.length === 1) {
+    const arg = command.args[0] ?? "";
+    return providerNames.has(arg)
+      ? { provider: arg, dir: "." }
+      : { provider: defaultProvider, dir: arg };
+  }
+
+  if (command.args.length === 2) {
+    return { provider: command.args[0] ?? "", dir: command.args[1] ?? "." };
+  }
+
+  return null;
+}
+
+/** Builds the `/acp` usage text, appending configured provider names when available. */
+function acpUsage(sessionManager: SessionManager): string {
+  const providers = sessionManager.getAcpProviderNames();
+  return providers.length > 0
+    ? `${ACP_USAGE_BASE}\n可用 provider：${providers.join("、")}。`
+    : ACP_USAGE_BASE;
 }
 
 /** Handles `/dl <path>` by sending an allowlisted local file through the reply sink. */
@@ -358,6 +431,8 @@ function formatBackendName(backend: string): string {
       return "Claude Code";
     case "opencode":
       return "OpenCode";
+    case "acp":
+      return "ACP";
     default:
       return backend;
   }

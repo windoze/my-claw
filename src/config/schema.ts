@@ -17,7 +17,7 @@ import {
 const nonEmptyStringSchema = z.string().min(1, "must not be empty");
 
 /** Runtime backend names accepted by configured Agent environments. */
-const agentBackendSchema = z.enum(["claude-code", "opencode"]);
+const agentBackendSchema = z.enum(["claude-code", "opencode", "acp"]);
 
 /** Output formats accepted by the current DingTalk reply renderer. */
 const outputModeSchema = z.literal("markdown");
@@ -35,6 +35,7 @@ export const agentEnvironmentConfigSchema = z
     cwd: nonEmptyStringSchema,
     agent: nonEmptyStringSchema.optional(),
     model: nonEmptyStringSchema.optional(),
+    provider: nonEmptyStringSchema.optional(),
   })
   .strict();
 
@@ -98,6 +99,36 @@ export const claudeCodeConfigSchema = z
   })
   .strict();
 
+/** Validates one selectable ACP provider subprocess definition. */
+export const acpProviderConfigSchema = z
+  .object({
+    command: nonEmptyStringSchema,
+    args: z.array(z.string()).default([]),
+    env: z.record(nonEmptyStringSchema, z.string()).optional(),
+  })
+  .strict();
+
+/** Validates the Agent Client Protocol (ACP) backend provider set and default. */
+export const acpConfigSchema = z
+  .object({
+    defaultProvider: nonEmptyStringSchema,
+    providers: z
+      .record(nonEmptyStringSchema, acpProviderConfigSchema)
+      .refine((providers) => Object.keys(providers).length > 0, {
+        message: "must define at least one ACP provider",
+      }),
+  })
+  .strict()
+  .superRefine((acp, context) => {
+    if (acp.providers[acp.defaultProvider] === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaultProvider"],
+        message: `must be one of the configured providers: ${Object.keys(acp.providers).join(", ")}`,
+      });
+    }
+  });
+
 /** Validates DingTalk output behavior and fills safe defaults. */
 export const outputConfigSchema = z
   .object({
@@ -153,8 +184,44 @@ export const appConfigSchema = z
     projects: z.array(projectConfigSchema).optional(),
     security: securityConfigSchema,
     claudeCode: claudeCodeConfigSchema,
+    acp: acpConfigSchema.optional(),
     output: outputConfigSchema,
     streaming: streamingConfigSchema,
     screenshot: screenshotConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, context) => {
+    const acpEnvironments: {
+      environment: { backend: string; provider?: string };
+      path: (string | number)[];
+    }[] = [{ environment: config.defaultEnvironment, path: ["defaultEnvironment"] }];
+    (config.projects ?? []).forEach((project, index) => {
+      acpEnvironments.push({ environment: project, path: ["projects", index] });
+    });
+
+    for (const { environment, path } of acpEnvironments) {
+      if (environment.backend !== "acp") {
+        continue;
+      }
+
+      if (config.acp === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["acp"],
+          message: 'is required when an environment uses backend "acp"',
+        });
+        continue;
+      }
+
+      if (
+        environment.provider !== undefined &&
+        config.acp.providers[environment.provider] === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [...path, "provider"],
+          message: `must be one of the configured acp.providers: ${Object.keys(config.acp.providers).join(", ")}`,
+        });
+      }
+    }
+  });

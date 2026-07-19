@@ -136,6 +136,8 @@ function writeEvent(event: AgentEvent): boolean {
     case "tool_finish":
       process.stderr.write(`[tool_finish] ${event.name}\n`);
       return false;
+    default:
+      return false;
   }
 }
 

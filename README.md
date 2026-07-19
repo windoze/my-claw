@@ -37,7 +37,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 - `dingtalk.clientId`、`dingtalk.clientSecret`、`dingtalk.robotCode`：填入钉钉应用和机器人信息。
 - `dingtalk.allowedUserIds`：只填允许使用该 Agent 的钉钉用户 ID。
 - `dingtalk.rejectGroupMessages`：第一阶段建议保持 `true`。
-- `defaultEnvironment.backend`：无 active project 时使用的后端，可为 `claude-code` 或 `opencode`。
+- `defaultEnvironment.backend`：无 active project 时使用的后端，可为 `claude-code`、`opencode` 或 `acp`。
 - `defaultEnvironment.cwd`：无 active project 时 Agent 运行的默认目录。
 - `security.allowedRootDirs`：允许 `/cc` 和 `/oc` 打开的目录根；所有目录会经过 `realpath` 校验，软链逃逸会被拒绝。
 - `security.downloadAllowedDirs`：允许 `/dl` 发送文件的目录根；未配置时默认复用 `allowedRootDirs`，文件会经过 `realpath` 校验以拒绝软链逃逸。
@@ -47,6 +47,7 @@ cp agent-dingtalk.config.example.jsonc agent-dingtalk.config.jsonc
 - `security.allowedAttachmentMimeTypes`：允许作为 Agent 输入的附件 MIME 类型；默认允许常见文本、JSON、PDF 和图片类型。
 - `claudeCode.permissionMode`、`claudeCode.allowedTools`、`claudeCode.maxTurns`：按本机安全边界配置 Claude Code 权限和轮数。
 - OpenCode 使用本机 `opencode` 认证状态；如需指定模型，`model` 使用 OpenCode SDK 的 `provider/model` 或 `provider:model` 格式。
+- `acp.defaultProvider`、`acp.providers`：当某环境使用 `backend: "acp"` 时必填。`providers` 是一组命名 ACP provider，每个 provider 的 `command` + `args` 会作为 stdio 子进程在所选工作目录启动一个兼容 Agent Client Protocol（ACP）的 agent，`env` 追加环境变量并合并到当前进程环境；`defaultProvider` 是命令省略 provider 时使用的默认 provider。常见 provider 启动命令：`cc` → `claude-agent-acp`、`cx` → `codex acp`、`kimi` → `kimi acp`、`oc` → `opencode acp`。ACP 后端支持 `/acp [provider] [dir]` 切换 provider/项目、任务运行中"改向"插话、思考(thought)/执行计划(plan)/工具状态等更丰富的流式渲染。
 - `output.maxMessageChars`：单条钉钉 Markdown 回复的最大字符数，超出后会自动分段。
 - `output.progressIntervalMs`：Markdown 模式下任务运行期间定期输出中间结果的最小间隔（毫秒），默认 `60000`（1 分钟）。每次只发送距上次输出后新增的文本；该间隔内没有新增文本时不发送。设为 `0` 可关闭，恢复为仅在任务结束时回复一条。`ai-card` 流式模式不受此项影响，仍按 `streaming.updateThrottleMs` 更新卡片。
 - `streaming.mode`：默认 `markdown`，保持最终 Markdown 回复；设置为 `ai-card` 后，普通 Agent 消息会先发送钉钉 AI Card，再通过 `v1.0/card/streaming` 按节流间隔更新内容。

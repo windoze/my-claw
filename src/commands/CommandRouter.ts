@@ -112,6 +112,7 @@ function mergeHandlers(
     stop: overrides.stop ?? defaults.stop,
     new: overrides.new ?? defaults.new,
     oc: overrides.oc ?? defaults.oc,
+    acp: overrides.acp ?? defaults.acp,
     dl: overrides.dl ?? defaults.dl,
     screenshot: overrides.screenshot ?? defaults.screenshot,
     invalid: overrides.invalid ?? defaults.invalid,

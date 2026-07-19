@@ -32,7 +32,7 @@ export interface CardStreamingRendererOptions {
 
 const CARD_TITLE = "Agent 回复";
 const EMPTY_CARD_CONTENT = "任务已完成，但没有文本输出。";
-const TOOL_PROGRESS_HEADER = "任务仍在运行，正在处理工具调用：";
+const TOOL_PROGRESS_HEADER = "任务仍在运行，正在处理：";
 const MAX_TOOL_PROGRESS_LINES = 6;
 /** Tools that surface an out-of-band prompt and therefore split the card stream. */
 const INTERACTIVE_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode"]);
@@ -310,18 +310,39 @@ export class CardStreamingRenderer {
 }
 
 function appendToolProgressLine(lines: string[], event: AgentEvent): void {
-  if (event.type !== "tool_start" && event.type !== "tool_finish") {
+  const line = toProgressLine(event);
+
+  if (line === undefined) {
     return;
   }
 
-  const name = normalizeToolName(event.name);
-  lines.push(
-    event.type === "tool_start" ? `- 正在使用工具：${name}` : `- 工具已完成：${name}`,
-  );
+  lines.push(line);
 
   if (lines.length > MAX_TOOL_PROGRESS_LINES) {
     lines.splice(0, lines.length - MAX_TOOL_PROGRESS_LINES);
   }
+}
+
+/** Builds a rolling progress line for tool and plan events, or undefined to skip. */
+function toProgressLine(event: AgentEvent): string | undefined {
+  if (event.type === "tool_start") {
+    const name = event.title ?? normalizeToolName(event.name);
+    return `- 正在使用工具：${name}`;
+  }
+
+  if (event.type === "tool_finish") {
+    const name = normalizeToolName(event.name);
+    const failed = event.status === "failed";
+    return failed ? `- 工具执行失败：${name}` : `- 工具已完成：${name}`;
+  }
+
+  if (event.type === "plan") {
+    const total = event.entries.length;
+    const done = event.entries.filter((entry) => entry.status === "completed").length;
+    return `- 更新执行计划（${done}/${total}）`;
+  }
+
+  return undefined;
 }
 
 /** Outcome of finalizing the trailing card segment. */

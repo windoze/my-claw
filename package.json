@@ -8,11 +8,13 @@
     "fake:message": "tsx src/testing/runFakeMessage.ts",
     "claude:prompt": "tsx src/backend/claude/runClaudePrompt.ts",
     "opencode:prompt": "tsx src/backend/opencode/runOpenCodePrompt.ts",
+    "acp:prompt": "tsx src/backend/acp/runAcpPrompt.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "@opencode-ai/sdk": "^1.17.13",
     "dingtalk-stream-sdk-nodejs": "^2.0.4",
